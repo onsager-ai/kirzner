@@ -148,7 +148,8 @@ function routeChanges() {
 function localDateTime(seconds) {
   const date = new Date(seconds * 1000)
   const two = value => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}T${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`
+  const value = `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}T${two(date.getHours())}:${two(date.getMinutes())}`
+  return date.getSeconds() === 0 ? value : `${value}:${two(date.getSeconds())}`
 }
 function proposal(label) {
   return {
@@ -682,6 +683,17 @@ try {
   assert.ok(historicalCompletedAt > v2Approval.recorded_at)
   const completedInput = result.getByLabel('Completion date and time', { exact: true })
   assert.equal(await completedInput.getAttribute('step'), '1')
+  const localDateTimeFixtures = [
+    { instant: new Date(2026, 0, 15, 11, 20, 0, 0), expected: '2026-01-15T11:20' },
+    { instant: new Date(2026, 0, 15, 11, 20, 37, 0), expected: '2026-01-15T11:20:37' },
+  ]
+  for (const { instant, expected } of localDateTimeFixtures) {
+    await completedInput.fill(localDateTime(instant.getTime() / 1000))
+    const canonicalValue = await completedInput.inputValue()
+    assert.equal(canonicalValue, expected)
+    assert.equal(Date.parse(canonicalValue), instant.getTime())
+  }
+  metrics.supplemental_regressions.historical_zero_and_nonzero_second_inputs_supported = true
   await completedInput.fill(localDateTime(historicalCompletedAt))
   await input('Historical action reference', 'SYNTHETIC founder-attested completed v2 record; no real outreach occurred.', result)
   await input('What happened then', 'A synthetic local preparation record; no participant or customer event is represented.', result)
