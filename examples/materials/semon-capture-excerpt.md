@@ -1,7 +1,6 @@
 # External source material: Semon capture and ordinary reads
 
-This is externally authored technical material, quoted from the Semon repository.
-It is not an agent-generated marketing draft or an executed acquisition experiment.
+This is externally authored technical material, quoted from Semon's public README. It is not customer evidence or an agent-written marketing draft. The worked-example script uploads it as inert text and attaches it to a clearly labeled synthetic local return wrapper. No external agent session was executed and no real Semon capture was performed for this example.
 
 Source: https://github.com/onsager-ai/semon/blob/defe9d791a197902c5bebcba2e2b7fe87dd9a075/README.md
 
