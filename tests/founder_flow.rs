@@ -48,6 +48,112 @@ async fn apply(store: &BusinessStore, w: &mut Workspace, value: Value) -> market
     }
     result
 }
+async fn return_input_replays(url: &str, id: &str) {
+    let store = BusinessStore::connect(url).await.unwrap();
+    let mut w = store.load_workspace(id).await.unwrap();
+    apply(&store, &mut w, json!({"type":"create_research", "context":"Synthetic compatibility fixture", "objective":"Review return replay", "authorization_scope":"Read only"})).await;
+    let attempt_id = w.attempts.last().unwrap().id.clone();
+    for (return_id, null_optionals) in [("minimal-suggestion", false), ("null-optionals", true)] {
+        let mut original = research_return();
+        original["attempt_id"] = attempt_id.clone().into();
+        original["return_id"] = return_id.into();
+        original["no_opportunity_reason"] = Value::Null;
+        if null_optionals {
+            original["brief_suggestion"] = Value::Null;
+            original["opportunities"][0]["experiment_draft"] = Value::Null;
+        }
+        let original_text = format!(
+            " \n{}\n  ",
+            serde_json::to_string_pretty(&original).unwrap()
+        );
+        apply(
+            &store,
+            &mut w,
+            json!({"type":"import_return", "payload":original, "original_text":original_text}),
+        )
+        .await;
+        let receipt = w.attempts.last().unwrap().returns.last().unwrap();
+        assert_eq!(receipt.original, original);
+        assert_eq!(receipt.original_text, original_text);
+        assert_eq!(
+            receipt.digest,
+            format!("{:x}", Sha256::digest(original.to_string().as_bytes()))
+        );
+    }
+    store.close().await;
+    let reopened = BusinessStore::connect(url).await.unwrap();
+    assert_eq!(reopened.load_workspace(id).await.unwrap(), w);
+    let before_replay = w.clone();
+    for receipt in &before_replay.attempts.last().unwrap().returns {
+        let api_input = serde_json::to_value(&receipt.input).unwrap();
+        assert_ne!(
+            api_input, receipt.original,
+            "Fixture must change the raw payload digest"
+        );
+        if receipt.input.return_id == "minimal-suggestion" {
+            assert_eq!(api_input["brief_suggestion"]["customer"], "");
+            assert_eq!(api_input["brief_suggestion"]["materials"], json!([]));
+        } else {
+            assert!(api_input.get("brief_suggestion").is_none());
+            assert!(
+                api_input["opportunities"][0]
+                    .get("experiment_draft")
+                    .is_none()
+            );
+        }
+        for import_type in ["import_return", "import_task_return"] {
+            let mut replay = json!({"type":import_type, "payload":api_input});
+            if import_type == "import_task_return" {
+                replay["attempt_id"] = attempt_id.clone().into();
+            }
+            let result = apply(&reopened, &mut w, replay).await;
+            assert!(!result.changed && !result.conflict);
+            assert_eq!(
+                w, before_replay,
+                "Replay must preserve revision, receipts, conflicts and exact originals"
+            );
+            assert_eq!(reopened.load_workspace(id).await.unwrap(), before_replay);
+        }
+    }
+    let receipts = before_replay.attempts.last().unwrap().returns.clone();
+    let api_input = serde_json::to_value(&receipts[0].input).unwrap();
+    let mut changed_summary = api_input.clone();
+    changed_summary["summary"] = "Changed meaningful summary".into();
+    let mut changed_provenance = api_input.clone();
+    changed_provenance["opportunities"][0]["sources"][0]["evidence"] =
+        "Changed source evidence".into();
+    let mut changed_draft = api_input.clone();
+    changed_draft["opportunities"][0]["experiment_draft"]["action"] =
+        "Changed proposed action".into();
+    let mut changed_suggestion = api_input;
+    changed_suggestion["brief_suggestion"]["product"] = "Changed suggested product".into();
+    let conflict_count = w.return_conflicts.len();
+    for (index, payload) in [
+        changed_summary,
+        changed_provenance,
+        changed_draft,
+        changed_suggestion,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let conflict =
+            json!({"type":"import_task_return", "attempt_id":attempt_id, "payload":payload});
+        let result = apply(&reopened, &mut w, conflict.clone()).await;
+        assert!(result.changed && result.conflict);
+        assert_eq!(w.return_conflicts.len(), conflict_count + index + 1);
+        assert_eq!(w.return_conflicts.last().unwrap().original, payload);
+        assert_eq!(w.attempts.last().unwrap().returns, receipts);
+        let after_conflict = w.clone();
+        let result = apply(&reopened, &mut w, conflict).await;
+        assert!(!result.changed && result.conflict);
+        assert_eq!(w, after_conflict);
+    }
+    reopened.close().await;
+    let reopened = BusinessStore::connect(url).await.unwrap();
+    assert_eq!(reopened.load_workspace(id).await.unwrap(), w);
+    reopened.close().await;
+}
 async fn founder_flow(url: &str, id: &str) {
     let store = BusinessStore::connect(url).await.unwrap();
     let mut w = store.load_workspace(id).await.unwrap();
@@ -325,6 +431,7 @@ async fn founder_flow(url: &str, id: &str) {
     let reopened = BusinessStore::connect(url).await.unwrap();
     assert_eq!(reopened.load_workspace(id).await.unwrap(), w);
     reopened.close().await;
+    return_input_replays(url, id).await;
 }
 
 #[tokio::test]

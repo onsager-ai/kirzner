@@ -296,7 +296,9 @@ fn import_return(
         .iter()
         .find(|r| r.input.return_id == input.return_id)
     {
-        if existing.digest == digest {
+        // API serialization can expand defaults or omit null optional fields.
+        // Equivalent typed input leaves the original payload and digest intact.
+        if existing.digest == digest || existing.input == input {
             return Ok(unchanged());
         }
         if workspace.return_conflicts.iter().any(|c| {
