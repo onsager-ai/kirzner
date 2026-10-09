@@ -109,11 +109,11 @@ export function ExperimentsPage() {
       <label className="field"><span>Select experiment</span><select aria-label="Select experiment" value={selected?.id || ''} onChange={event => selectExperiment(event.target.value)}>{workspace.experiments.map(e => <option key={e.id} value={e.id}>{e.proposals.at(-1)?.content.action || 'Experiment'} · version {e.proposals.at(-1)?.version}</option>)}</select></label>
       {selected && <><div className="stage-banner"><div><span className="eyebrow">Current next step</span><h3>{stage}</h3></div><Status tone={stage === 'Recorded next decision' ? 'good' : stage === 'Reconcile effects' ? 'amber' : ''}>{stage}</Status></div>
         <OpportunitySource opportunityId={selected.opportunity_id}/>
-        <ProposalEditor key={selected.id} experiment={selected} blocked={effectsBlocked}/>
+        <ProposalEditor key={`proposal-${selected.id}`} experiment={selected} blocked={effectsBlocked}/>
         <section className="workspace-section"><div className="row"><div><span className="eyebrow">Original handoffs and returns</span><h2>Preparation and research materials</h2></div><Link to="/handoffs">All handoffs</Link></div>
           {relatedAttempts.length === 0 ? <p className="muted">No research or preparation task is linked yet. Approve the current proposal to prepare a handoff.</p> : [...relatedAttempts].reverse().map(attempt => <AttemptCard key={attempt.id} attempt={attempt} embedded/>)}
         </section>
-        <ResultCard key={selected.id} experiment={selected} embedded/>
+        <ResultCard key={`results-${selected.id}`} experiment={selected} embedded/>
       </>}
     </Panel>}
     {workspace.experiments.length === 0 && <Empty title="No experiment yet">Review an evidenced opportunity draft or create a bounded proposal below.</Empty>}

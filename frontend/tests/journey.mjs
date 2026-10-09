@@ -105,6 +105,13 @@ const input = (name, value, scope = page) => scope.getByLabel(name, { exact: tru
 function panel(name, scope = page) {
   return scope.getByRole('heading', { level: 2, name, exact: true }).first().locator('xpath=..')
 }
+async function waitForExperiment(id, action, scope) {
+  await panel('Current proposal', scope).locator(':scope > dl.evidence-grid').getByText(action, { exact: true }).waitFor()
+  assert.equal(await scope.getByLabel('Select experiment', { exact: true }).inputValue(), id)
+  for (const name of ['Current proposal', 'Actual actions and observations']) {
+    assert.equal(await scope.getByRole('heading', { level: 2, name, exact: true }).count(), 1, `Switching experiments must render exactly one ${name} panel`)
+  }
+}
 async function submit(name, scope = page, expectedStatus = 200) {
   const response = page.waitForResponse(r => new URL(r.url()).pathname === '/api/workspace' && r.request().method() === 'POST')
   await scope.getByRole('button', { name, exact: true }).click()
@@ -269,6 +276,7 @@ try {
   const opportunityPanel = panel(importedOpportunity.evidence.title)
   await opportunityPanel.getByRole('heading', { level: 2, name: importedOpportunity.evidence.title, exact: true }).waitFor()
   await opportunityPanel.getByRole('heading', { name: 'Proposed experiment draft', exact: true }).waitFor()
+  await opportunityPanel.getByRole('button', { name: 'Use experiment draft', exact: true }).scrollIntoViewIfNeeded()
   await captureStage('opportunity-draft', [1280], ['light'])
   await opportunityPanel.getByRole('button', { name: 'Use experiment draft', exact: true }).click()
   await page.waitForURL(url => new URL(url).pathname === '/experiments' && Boolean(new URL(url).searchParams.get('experiment')))
@@ -306,6 +314,9 @@ try {
   experiment = current.experiments.find(item => item.id === experimentId)
   const v2Approval = experiment.decisions.find(decision => decision.version === 2 && decision.approved)
   assert.ok(v2Approval)
+  await proposalPanel.getByRole('button', { name: 'Create preparation handoff', exact: true }).waitFor()
+  await proposalPanel.getByRole('heading', { name: 'Founder decision · version 2', exact: true }).scrollIntoViewIfNeeded()
+  await captureStage('proposal-approval', [1280], ['light'])
   await submit('Create preparation handoff', proposalPanel)
   current = await workspace()
   const preparationAttempt = current.attempts.find(attempt => attempt.experiment_id === experimentId && attempt.proposal_version === 2)
@@ -592,38 +603,61 @@ try {
   second = current.experiments.find(item => item.id === secondExperiment.id)
   const secondObservation = second.observations.find(observation => observation.evidence.includes('second experiment second observation for collision test'))
   assert.ok(secondObservation)
+  const secondRecordsBeforeSwitch = { actions: second.actions, observations: second.observations, next_steps: second.next_steps, proposals: second.proposals, decisions: second.decisions }
 
   await page.goto(`${base}/experiments?experiment=${encodeURIComponent(experimentId)}`)
   await page.reload()
   experimentWorkspace = panel('Experiment workspace')
   await experimentWorkspace.getByLabel('Select experiment', { exact: true }).waitFor()
   assert.equal(await experimentWorkspace.getByLabel('Select experiment', { exact: true }).inputValue(), experimentId)
+  await waitForExperiment(experimentId, v2Action, experimentWorkspace)
   result = panel('Actual actions and observations', experimentWorkspace)
   const appendedArticle = result.locator('article.receipt').filter({ hasText: 'SYNTHETIC second appended observation on the same action' })
+  await appendedArticle.waitFor()
   await input('Next decision reason', 'UNSAVED e1 next-step text must not appear in experiment e2.', appendedArticle)
+  await result.getByLabel('Observed action', { exact: true }).selectOption(primaryAction.id)
+  await result.getByLabel('Observed business outcome', { exact: true }).selectOption('success')
+  for (const name of ['Actual observations and evidence', 'Comparison with original criteria', 'Proposed learning']) {
+    await input(name, `UNSAVED e1 ${name} must not appear in experiment e2.`, result)
+  }
   proposalPanel = panel('Current proposal', experimentWorkspace)
   await proposalPanel.getByRole('button', { name: 'Revise proposal', exact: true }).click()
   const unsavedProposal = 'UNSAVED e1 proposal text must not appear in experiment e2.'
   await input('Proposed action', unsavedProposal, proposalPanel)
 
   await experimentWorkspace.getByLabel('Select experiment', { exact: true }).selectOption(secondExperiment.id)
+  await waitForExperiment(secondExperiment.id, second.proposals.at(-1).content.action, experimentWorkspace)
   const secondProposalPanel = panel('Current proposal', experimentWorkspace)
   assert.equal(await secondProposalPanel.getByRole('button', { name: 'Save new version', exact: true }).count(), 0)
   assert.equal(await page.getByText(unsavedProposal, { exact: true }).count(), 0)
   const secondObservationArticle = panel('Actual actions and observations', experimentWorkspace).locator('article.receipt').filter({ hasText: 'SYNTHETIC second experiment second observation for collision test' })
+  await secondObservationArticle.waitFor()
   assert.equal(await secondObservationArticle.getByLabel('Next decision reason', { exact: true }).inputValue(), '')
+  const secondResult = panel('Actual actions and observations', experimentWorkspace)
+  for (const name of ['Observed action', 'Observed business outcome', 'Actual observations and evidence', 'Comparison with original criteria', 'Proposed learning']) {
+    assert.equal(await secondResult.getByLabel(name, { exact: true }).inputValue(), '', `Switching experiments must reset the ${name} draft`)
+  }
   current = await workspace()
   experiment = current.experiments.find(item => item.id === experimentId)
   second = current.experiments.find(item => item.id === secondExperiment.id)
   assert.equal(experiment.actions[0].id, second.actions[0].id, 'Fixture should use the same experiment-local action identifier')
   assert.deepEqual(experiment.observations.map(item => item.id), second.observations.map(item => item.id), 'Fixture should use the same experiment-local observation identifiers')
+  assert.deepEqual({ actions: second.actions, observations: second.observations, next_steps: second.next_steps, proposals: second.proposals, decisions: second.decisions }, secondRecordsBeforeSwitch, 'Switching experiments must not change the second experiment records')
   metrics.supplemental_regressions.colliding_local_action_and_observation_ids_checked = true
 
   await experimentWorkspace.getByLabel('Select experiment', { exact: true }).selectOption(experimentId)
+  await waitForExperiment(experimentId, v2Action, experimentWorkspace)
+  await appendedArticle.waitFor()
+  assert.equal(await appendedArticle.getByLabel('Next decision reason', { exact: true }).inputValue(), '')
+  result = panel('Actual actions and observations', experimentWorkspace)
+  for (const name of ['Observed action', 'Observed business outcome', 'Actual observations and evidence', 'Comparison with original criteria', 'Proposed learning']) {
+    assert.equal(await result.getByLabel(name, { exact: true }).inputValue(), '', `Returning to the original experiment must reset the ${name} draft`)
+  }
   proposalPanel = panel('Current proposal', experimentWorkspace)
   await proposalPanel.getByRole('button', { name: 'Revise proposal', exact: true }).click()
   assert.equal(await proposalPanel.getByLabel('Proposed action', { exact: true }).inputValue(), v2Action)
   assert.notEqual(await proposalPanel.getByLabel('Proposed action', { exact: true }).inputValue(), unsavedProposal)
+  metrics.supplemental_regressions.experiment_switch_resets_unsaved_proposal_and_observation_drafts = true
   const v3Action = `${v2Action} A later synthetic regression version checks fresh approval and historical boundaries.`
   await input('Proposed action', v3Action, proposalPanel)
   await page.waitForTimeout(1100)
@@ -632,6 +666,9 @@ try {
   experiment = current.experiments.find(item => item.id === experimentId)
   const v3 = experiment.proposals.find(item => item.version === 3)
   assert.ok(v3)
+  assert.equal(v3.content.action, v3Action)
+  second = current.experiments.find(item => item.id === secondExperiment.id)
+  assert.deepEqual({ actions: second.actions, observations: second.observations, next_steps: second.next_steps, proposals: second.proposals, decisions: second.decisions }, secondRecordsBeforeSwitch, 'Revising the original experiment after switching must not change the second experiment records')
   assert.ok(v3.created_at > v2Approval.recorded_at + 1)
   assert.equal(experiment.decisions.some(decision => decision.version === 3), false)
   assert.equal(current.attempts.find(attempt => attempt.id === preparationAttempt.id).proposal_version, 2)
