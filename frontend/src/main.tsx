@@ -9,10 +9,11 @@ import { ExperimentsPage } from './pages/experiments'
 import { HandoffsPage } from './pages/handoffs'
 import { ResultsPage } from './pages/results'
 import './styles.css'
+import './workspace.css'
 function Shell() {
   const { workspace } = useWorkspace()
   const semon = useQuery({ queryKey: ['semon'], queryFn: async () => { const r = await fetch('/api/semon'); if (!r.ok) throw new Error('Unavailable'); return r.json() as Promise<{ capture_available: boolean; store_present: boolean; limitation: string }> }, retry: false })
-  const navigation = [{ path: '/', label: 'Business brief', number: '01' }, { path: '/opportunities', label: 'Opportunities', number: '02' }, { path: '/experiments', label: 'Experiments', number: '03' }, { path: '/handoffs', label: 'Handoffs', number: '04' }, { path: '/results', label: 'Results & learning', number: '05' }] as const
+  const navigation = [{ path: '/', label: 'Business brief', number: '01' }, { path: '/opportunities', label: 'Opportunities', number: '02' }, { path: '/experiments', label: 'Experiment workspace', number: '03' }, { path: '/handoffs', label: 'Handoffs', number: '04' }, { path: '/results', label: 'Results & learning', number: '05' }] as const
   const pending = workspace.attempts.filter(a => a.returns.length === 0).length
   return <div className="app"><aside className="sidebar"><Link to="/" className="brand"><span className="brand-icon">k</span><span>kirzner<small>Business workspace</small></span></Link>
     <div className="workspace-label"><span className="green-dot"/>LOCAL WORKSPACE</div><nav aria-label="Business loop">{navigation.map(item => <Link to={item.path} key={item.path} className="nav-item" activeProps={{ className: 'nav-item active' }} activeOptions={{ exact: true }}><span>{item.number}</span>{item.label}{item.path === '/handoffs' && pending > 0 && <b>{pending}</b>}</Link>)}</nav>
