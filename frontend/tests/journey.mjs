@@ -69,6 +69,7 @@ const metrics = {
   supplemental_regressions: {
     malformed_return_kept_visible: false,
     mismatched_task_rejected: false,
+    homepage_resume_clicks: 0,
     duplicate_return_unchanged: false,
     conflicting_return_preserved: false,
     accepted_partial_material_ready: false,
@@ -81,7 +82,10 @@ const metrics = {
     experiment_switch_resets_unsaved_proposal_and_observation_drafts: false,
     colliding_local_action_and_observation_ids_checked: false,
     zero_opportunity_status_headings_checked: [],
+    successful_zero_opportunity_without_reason_rejected: false,
     new_research_task_resets_unsent_paste_and_old_task_remains_accessible: false,
+    brief_suggestion_review_apply_preserves_unknowns_and_source: false,
+    upload_metadata_confined_and_human_note_visible: false,
     legacy_handoffs_file_import_and_download: false,
     supplemental_file_imports: 0,
     supplemental_task_brief_downloads: 0,
@@ -89,6 +93,8 @@ const metrics = {
     mobile_overflow: null,
     supplemental_route_changes: [],
   },
+  visual_screenshots: [],
+  visual_capture_errors: [],
   page_errors: pageErrors,
   completed: false,
 }
@@ -97,7 +103,7 @@ let primaryRouteChanges = []
 let primaryFrozen = false
 const input = (name, value, scope = page) => scope.getByLabel(name, { exact: true }).fill(value)
 function panel(name, scope = page) {
-  return scope.locator('section.panel').filter({ has: scope.getByRole('heading', { name, exact: true }) }).first()
+  return scope.getByRole('heading', { level: 2, name, exact: true }).first().locator('xpath=..')
 }
 async function submit(name, scope = page, expectedStatus = 200) {
   const response = page.waitForResponse(r => new URL(r.url()).pathname === '/api/workspace' && r.request().method() === 'POST')
@@ -158,10 +164,33 @@ async function recordObservation(result, actionId, label) {
   await input('Proposed learning', 'No business learning is asserted by this synthetic record.', result)
   await submit('Record business observation', result)
 }
+async function captureStage(stage, widths, themes, bestEffort = false) {
+  await mkdir('test-results', { recursive: true })
+  for (const width of widths) {
+    for (const theme of themes) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+      await page.emulateMedia({ colorScheme: theme })
+      for (const capture of ['viewport', 'fullpage']) {
+        const filename = `${stage}-${width}-${theme}-${capture}.png`
+        try {
+          await page.screenshot({ path: `test-results/${filename}`, fullPage: capture === 'fullpage', animations: 'disabled' })
+          metrics.visual_screenshots.push(filename)
+        } catch (error) {
+          metrics.visual_capture_errors.push({ filename, message: error instanceof Error ? error.message : String(error) })
+          if (!bestEffort) throw error
+        }
+      }
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.emulateMedia({ colorScheme: 'light' })
+}
 
 try {
   await page.goto(base)
   const starter = panel('Your first business brief')
+  await starter.getByRole('heading', { level: 2, name: 'Your first business brief', exact: true }).waitFor()
+  await captureStage('minimal-start', [1280], ['light'])
   const starterValues = {
     Product: 'Semon: local session capture and ordinary occurrence-log reads for coding agents',
     'Current business objective': 'Prepare a source-backed validation plan for whether founders using multiple external agent sessions need a simpler way to resume experiments.',
@@ -238,7 +267,9 @@ try {
   assert.deepEqual(importedOpportunity.evidence.experiment_draft, experimentDraft)
 
   const opportunityPanel = panel(importedOpportunity.evidence.title)
+  await opportunityPanel.getByRole('heading', { level: 2, name: importedOpportunity.evidence.title, exact: true }).waitFor()
   await opportunityPanel.getByRole('heading', { name: 'Proposed experiment draft', exact: true }).waitFor()
+  await captureStage('opportunity-draft', [1280], ['light'])
   await opportunityPanel.getByRole('button', { name: 'Use experiment draft', exact: true }).click()
   await page.waitForURL(url => new URL(url).pathname === '/experiments' && Boolean(new URL(url).searchParams.get('experiment')))
   const experimentId = new URL(page.url()).searchParams.get('experiment')
@@ -295,6 +326,9 @@ try {
   assert.equal(uploadResult.status(), 200)
   const deliverable = await uploadResult.json()
   assert.ok(deliverable.reference)
+  assert.match(deliverable.note, /^SHA-256 [a-f0-9]{64}; [0-9]+ bytes$/)
+  const humanMaterialNote = 'SYNTHETIC founder note: this local excerpt is technical context only, not customer evidence.'
+  const humanNoteDeliverable = { ...deliverable, title: 'Founder note for the pinned source excerpt', note: humanMaterialNote }
   metrics.measured_primary_journey.local_deliverable_file_uploads += 1
   const materialDownload = await page.request.get(new URL(deliverable.reference, base).toString())
   assert.equal(materialDownload.status(), 200)
@@ -305,7 +339,7 @@ try {
     status: 'partial',
     external_effects: 'none',
     summary: 'SYNTHETIC partial execution report for a local material-review test; no external write occurred.',
-    deliverables: [deliverable],
+    deliverables: [deliverable, humanNoteDeliverable],
     opportunities: [],
     execution_refs: [],
   }
@@ -360,9 +394,28 @@ try {
   metrics.supplemental_regressions.conflicting_return_preserved = true
 
   const partialArticle = preparationTask.locator('article.receipt').filter({ hasText: partialReturn.summary })
-  await partialArticle.getByRole('button', { name: 'Preview material', exact: true }).click()
+  const generatedMaterialCard = partialArticle.locator('.deliverable').filter({ hasText: deliverable.title }).first()
+  const materialDetails = generatedMaterialCard.locator('details.technical')
+  assert.equal(await materialDetails.evaluate(details => details.open), false, 'Generated upload metadata must start collapsed')
+  assert.equal(await generatedMaterialCard.getByText(deliverable.note, { exact: true }).isVisible(), false, 'Generated checksum must stay out of the ordinary material summary')
+  const humanNoteCard = partialArticle.locator('.deliverable').filter({ hasText: humanMaterialNote })
+  const visibleHumanNote = humanNoteCard.locator('small').getByText(humanMaterialNote, { exact: true })
+  await visibleHumanNote.waitFor()
+  assert.equal(await visibleHumanNote.isVisible(), true, 'Founder-authored notes remain visible in the ordinary material summary')
+  await materialDetails.getByText('Advanced material details', { exact: true }).click()
+  const advancedMaterialText = await materialDetails.innerText()
+  assert.ok(advancedMaterialText.includes('Reference:'))
+  assert.ok(advancedMaterialText.includes(deliverable.reference))
+  assert.ok(advancedMaterialText.includes('Media type:'))
+  assert.ok(advancedMaterialText.includes(deliverable.media_type))
+  assert.ok(advancedMaterialText.includes('Upload metadata:'))
+  assert.ok(advancedMaterialText.includes(deliverable.note), 'Advanced metadata must preserve the generated checksum note exactly')
+  await generatedMaterialCard.getByRole('button', { name: 'Preview material', exact: true }).click()
   await partialArticle.getByRole('heading', { name: 'Original acceptance criteria · proposal v2', exact: true }).waitFor()
   assert.equal(await partialArticle.locator('.preview-panel pre').innerText(), materialText)
+  await partialArticle.scrollIntoViewIfNeeded()
+  await captureStage('material-review', [1280], ['light'])
+  metrics.supplemental_regressions.upload_metadata_confined_and_human_note_visible = true
   await partialArticle.getByLabel('Deliverable review', { exact: true }).selectOption('accept')
   await input('Review note', 'SYNTHETIC fixture: accept this inert text as preparation material only.', partialArticle)
   await submit('Record deliverable review', partialArticle)
@@ -438,6 +491,19 @@ try {
     linked_research_and_preparation_attempts: current.attempts.filter(attempt => attempt.id === researchAttempt.id || attempt.id === preparationAttempt.id).length,
   }
   primaryFrozen = true
+  await captureStage('primary-reopen', [1280, 390], ['light', 'dark'])
+
+  await page.goto(base)
+  const resumeExperiment = page.getByRole('link', { name: 'Resume current experiment', exact: true })
+  await resumeExperiment.waitFor()
+  assert.equal(await resumeExperiment.getAttribute('href'), `/experiments?experiment=${encodeURIComponent(experimentId)}`)
+  await resumeExperiment.click()
+  await page.waitForURL(url => new URL(url).pathname === '/experiments' && new URL(url).searchParams.get('experiment') === experimentId)
+  experimentWorkspace = panel('Experiment workspace')
+  await experimentWorkspace.getByLabel('Select experiment', { exact: true }).waitFor()
+  assert.equal(await experimentWorkspace.getByLabel('Select experiment', { exact: true }).inputValue(), experimentId)
+  await experimentWorkspace.getByRole('heading', { name: 'Recorded next decision', exact: true }).waitFor()
+  metrics.supplemental_regressions.homepage_resume_clicks = 1
 
   // Separate regression fixtures start only after the primary friction counts are frozen.
   result = panel('Actual actions and observations', experimentWorkspace)
@@ -486,6 +552,9 @@ try {
   await page.goto(`${base}/experiments?experiment=${encodeURIComponent(secondExperiment.id)}`)
   await page.reload()
   let secondWorkspace = panel('Experiment workspace')
+  await secondWorkspace.getByLabel('Select experiment', { exact: true }).waitFor()
+  assert.equal(await secondWorkspace.getByLabel('Select experiment', { exact: true }).inputValue(), secondExperiment.id)
+  await panel('Current proposal', secondWorkspace).getByRole('heading', { name: 'Current proposal', exact: true }).waitFor()
   await secondWorkspace.getByRole('heading', { name: 'Record actual action', exact: true }).waitFor()
   result = panel('Actual actions and observations', secondWorkspace)
   await result.getByText('Previously accepted materials for this proposal version remain available; a later preparation task is still pending or has no accepted return.', { exact: true }).waitFor()
@@ -528,6 +597,7 @@ try {
   await page.reload()
   experimentWorkspace = panel('Experiment workspace')
   await experimentWorkspace.getByLabel('Select experiment', { exact: true }).waitFor()
+  assert.equal(await experimentWorkspace.getByLabel('Select experiment', { exact: true }).inputValue(), experimentId)
   result = panel('Actual actions and observations', experimentWorkspace)
   const appendedArticle = result.locator('article.receipt').filter({ hasText: 'SYNTHETIC second appended observation on the same action' })
   await input('Next decision reason', 'UNSAVED e1 next-step text must not appear in experiment e2.', appendedArticle)
@@ -626,13 +696,20 @@ try {
   await page.goto(`${base}/experiments?experiment=${encodeURIComponent(unknownExperiment.id)}`)
   await page.reload()
   let unknownWorkspace = panel('Experiment workspace')
+  await unknownWorkspace.getByLabel('Select experiment', { exact: true }).waitFor()
+  assert.equal(await unknownWorkspace.getByLabel('Select experiment', { exact: true }).inputValue(), unknownExperiment.id)
+  const unknownProposalPanel = panel('Current proposal', unknownWorkspace)
+  await unknownProposalPanel.getByRole('heading', { name: 'Current proposal', exact: true }).waitFor()
   await unknownWorkspace.getByRole('heading', { name: 'Reconcile effects', exact: true }).waitFor()
-  assert.equal(await panel('Current proposal', unknownWorkspace).getByRole('button', { name: 'Create preparation handoff', exact: true }).count(), 0)
+  assert.equal(await unknownProposalPanel.getByRole('button', { name: 'Create preparation handoff', exact: true }).count(), 0)
   assert.equal(await panel('Actual actions and observations', unknownWorkspace).getByRole('button', { name: 'Record actual action', exact: true }).count(), 0)
   await page.goto(`${base}/handoffs?attempt=${encodeURIComponent(unknownExperiment.attempt.id)}`)
   const unknownTask = panel('Experiment preparation task')
   const unknownArticle = unknownTask.locator('article.receipt').filter({ hasText: unknownReturn.summary })
-  await unknownArticle.getByText('Reconcile unknown external effects', { exact: true }).click()
+  const reconciliationDetails = unknownArticle.locator('details').filter({ hasText: 'Reconcile unknown external effects' })
+  if (!(await reconciliationDetails.evaluate(details => details.open))) {
+    await reconciliationDetails.getByText('Reconcile unknown external effects', { exact: true }).click()
+  }
   await unknownArticle.getByLabel('Verified external effects', { exact: true }).selectOption('none')
   await input('Reconciliation evidence', 'SYNTHETIC fixture confirms no external write occurred.', unknownArticle)
   await submit('Record reconciliation', unknownArticle)
@@ -642,8 +719,13 @@ try {
   await page.goto(`${base}/experiments?experiment=${encodeURIComponent(unknownExperiment.id)}`)
   await page.reload()
   unknownWorkspace = panel('Experiment workspace')
+  await unknownWorkspace.getByLabel('Select experiment', { exact: true }).waitFor()
+  assert.equal(await unknownWorkspace.getByLabel('Select experiment', { exact: true }).inputValue(), unknownExperiment.id)
+  const reconciledProposalPanel = panel('Current proposal', unknownWorkspace)
+  await reconciledProposalPanel.getByRole('heading', { name: 'Current proposal', exact: true }).waitFor()
+  await reconciledProposalPanel.getByRole('button', { name: 'Create preparation handoff', exact: true }).waitFor()
   assert.equal(await unknownWorkspace.getByRole('heading', { name: 'Reconcile effects', exact: true }).count(), 0)
-  assert.equal(await panel('Current proposal', unknownWorkspace).getByRole('button', { name: 'Create preparation handoff', exact: true }).count(), 1)
+  assert.equal(await reconciledProposalPanel.getByRole('button', { name: 'Create preparation handoff', exact: true }).count(), 1)
   metrics.supplemental_regressions.unknown_effect_blocks_action_and_preparation_until_reconciled = true
   metrics.supplemental_regressions.reconciliation_does_not_retry = true
 
@@ -652,7 +734,6 @@ try {
     ['unknown', null, 'Research outcome unknown'],
     ['partial', null, 'Research return incomplete'],
     ['failed', null, 'Research failed'],
-    ['succeeded', null, 'Research result needs review'],
     ['succeeded', 'SYNTHETIC explicit no-actionable reason for status-label regression only.', 'No actionable opportunity'],
   ]
   for (const [status, reason, expectedHeading] of emptyResearchCases) {
@@ -678,6 +759,83 @@ try {
   await page.getByText('Research outcome unknown', { exact: true }).waitFor()
   await page.getByText('Research return incomplete', { exact: true }).waitFor()
   assert.equal(await page.getByText('No actionable opportunity', { exact: true }).count(), 1)
+
+  await submit('Create research handoff', panel('Request opportunity research'))
+  current = await workspace()
+  const invalidResearchAttempt = current.attempts.filter(attempt => attempt.kind === 'research').at(-1)
+  const beforeInvalidReturn = current
+  const invalidSuccessfulReturn = {
+    status: 'succeeded',
+    external_effects: 'none',
+    summary: 'SYNTHETIC invalid zero-opportunity fixture; the required reason is intentionally absent.',
+    deliverables: [],
+    opportunities: [],
+    execution_refs: [],
+  }
+  const invalidSuccessfulReturnText = JSON.stringify(invalidSuccessfulReturn)
+  const invalidSuccessfulTask = panel('Opportunity research task')
+  const invalidSuccessfulResponse = await pasteReturn(invalidSuccessfulTask, invalidSuccessfulReturnText)
+  assert.equal(invalidSuccessfulResponse.status(), 422, await invalidSuccessfulResponse.text())
+  await page.getByRole('alert').filter({ hasText: /reason for no actionable opportunity/i }).first().waitFor()
+  assert.equal(await invalidSuccessfulTask.getByLabel('Returned JSON', { exact: true }).inputValue(), invalidSuccessfulReturnText)
+  const afterInvalidReturn = await workspace()
+  assert.equal(afterInvalidReturn.revision, beforeInvalidReturn.revision)
+  assert.deepEqual(afterInvalidReturn, beforeInvalidReturn, 'A rejected successful zero-opportunity return must leave workspace records unchanged')
+  assert.equal(afterInvalidReturn.attempts.find(attempt => attempt.id === invalidResearchAttempt.id).returns.length, 0)
+  metrics.supplemental_regressions.successful_zero_opportunity_without_reason_rejected = true
+
+  await submit('Create research handoff', panel('Request opportunity research'))
+  current = await workspace()
+  const suggestionAttempt = current.attempts.filter(attempt => attempt.kind === 'research').at(-1)
+  const briefBeforeSuggestion = current.brief
+  const historyBeforeSuggestion = current.brief_history
+  const briefSuggestion = {
+    product: briefBeforeSuggestion.product,
+    customer: '',
+    capabilities: '',
+    objective: 'SYNTHETIC suggested objective for founder review; no customer need or outcome is asserted.',
+    time_budget: '',
+    money_budget: '',
+    channels: '',
+    constraints: briefBeforeSuggestion.constraints,
+    materials: [],
+  }
+  const suggestionReturn = {
+    status: 'unknown',
+    external_effects: 'none',
+    summary: 'SYNTHETIC unknown zero-opportunity return carrying an unadopted brief suggestion.',
+    deliverables: [],
+    opportunities: [],
+    execution_refs: [],
+    brief_suggestion: briefSuggestion,
+  }
+  const suggestionReturnText = JSON.stringify(suggestionReturn)
+  const suggestionTask = panel('Opportunity research task')
+  const suggestionImport = await pasteReturn(suggestionTask, suggestionReturnText)
+  assert.equal(suggestionImport.status(), 200, await suggestionImport.text())
+  const afterSuggestionImport = await workspace()
+  assert.deepEqual(afterSuggestionImport.brief, briefBeforeSuggestion, 'Import must not apply a suggested brief')
+  assert.deepEqual(afterSuggestionImport.brief_history, historyBeforeSuggestion, 'Import must not add brief history')
+  const suggestionReceipt = afterSuggestionImport.attempts.find(attempt => attempt.id === suggestionAttempt.id).returns[0]
+  assert.equal(suggestionReceipt.original_text, suggestionReturnText)
+  assert.deepEqual(suggestionReceipt.original, suggestionReturn)
+  const suggestionArticle = suggestionTask.locator('article.receipt').filter({ hasText: suggestionReturn.summary })
+  const suggestionPanel = suggestionArticle.locator('section.subpanel').filter({ has: suggestionArticle.getByRole('heading', { name: 'Suggested business brief · not applied', exact: true }) }).first()
+  await suggestionPanel.getByRole('heading', { name: 'Suggested business brief · not applied', exact: true }).waitFor()
+  assert.equal(await suggestionPanel.getByLabel('Current business objective', { exact: true }).inputValue(), briefSuggestion.objective)
+  const founderReviewedObjective = 'SYNTHETIC founder-reviewed objective based on a suggestion; no market or customer claim is asserted.'
+  await input('Current business objective', founderReviewedObjective, suggestionPanel)
+  await submit('Save business brief', suggestionPanel)
+  current = await workspace()
+  assert.equal(current.brief.product, briefBeforeSuggestion.product)
+  assert.equal(current.brief.constraints, briefBeforeSuggestion.constraints)
+  assert.equal(current.brief.objective, founderReviewedObjective)
+  for (const field of ['customer', 'capabilities', 'time_budget', 'money_budget', 'channels']) assert.equal(current.brief[field], '')
+  assert.deepEqual(current.brief.materials, [])
+  assert.equal(current.brief_history.length, historyBeforeSuggestion.length + 1)
+  assert.deepEqual(current.brief_history.at(-1), current.brief)
+  assert.equal(current.attempts.find(attempt => attempt.id === suggestionAttempt.id).returns[0].original_text, suggestionReturnText)
+  metrics.supplemental_regressions.brief_suggestion_review_apply_preserves_unknowns_and_source = true
 
   current = await workspace()
   const oldResearchAttempt = current.attempts.filter(attempt => attempt.kind === 'research').at(-1)
@@ -728,6 +886,11 @@ try {
 
   await page.goto(`${base}/experiments?experiment=${encodeURIComponent(experimentId)}`)
   await page.reload()
+  const finalWorkspace = panel('Experiment workspace')
+  await finalWorkspace.getByLabel('Select experiment', { exact: true }).waitFor()
+  assert.equal(await finalWorkspace.getByLabel('Select experiment', { exact: true }).inputValue(), experimentId)
+  await panel('Current proposal', finalWorkspace).getByRole('heading', { name: 'Current proposal', exact: true }).waitFor()
+  await panel('Actual actions and observations', finalWorkspace).getByRole('heading', { name: 'Actual actions and observations', exact: true }).waitFor()
   await page.setViewportSize({ width: 390, height: 844 })
   await page.emulateMedia({ colorScheme: 'light' })
   metrics.supplemental_regressions.mobile_overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
@@ -751,19 +914,7 @@ try {
   metrics.measured_primary_journey.primary_route_change_count = metrics.measured_primary_journey.primary_route_changes.length
   metrics.measured_primary_journey.manual_proposal_edit_count = metrics.measured_primary_journey.prefilled_proposal_fields_edited.length
   metrics.measured_primary_journey.measured_transfer_steps = metrics.measured_primary_journey.clipboard_task_copies + metrics.measured_primary_journey.pasted_task_returns + metrics.measured_primary_journey.local_deliverable_file_uploads
-  await mkdir('test-results', { recursive: true })
-  for (const [width, theme, filename] of [
-    [1280, 'light', '1280-light.png'],
-    [1280, 'dark', '1280-dark.png'],
-    [390, 'light', '390-light.png'],
-    [390, 'dark', '390-dark.png'],
-  ]) {
-    try {
-      await page.setViewportSize({ width, height: 900 })
-      await page.emulateMedia({ colorScheme: theme })
-      await page.screenshot({ path: `test-results/${filename}`, fullPage: true, animations: 'disabled' })
-    } catch { /* keep the trace and result JSON even when navigation or capture fails */ }
-  }
+  try { await captureStage('regression-final', [1280, 390], ['light', 'dark'], true) } catch { /* retain report and trace when best-effort capture cannot run */ }
   try { await context.tracing.stop({ path: 'test-results/browser-trace.zip' }) } catch { /* best-effort trace artifact */ }
   await writeFile('test-results/founder-friction.json', `${JSON.stringify(metrics, null, 2)}\n`)
   await browser.close()

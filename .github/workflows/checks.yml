@@ -76,5 +76,7 @@ jobs:
         if: always()
         with:
           name: founder-flow-evidence
-          path: test-results/
+          path: |
+            test-results/
+            frontend/test-results/
           if-no-files-found: ignore
