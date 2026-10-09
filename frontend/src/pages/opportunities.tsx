@@ -16,7 +16,7 @@ export function OpportunitiesPage() {
         <Field name="scope" label="Research authorization scope" value="Read public sources and prepare findings only. Do not contact prospects, publish, purchase, or change external systems."/>
       </Form>}
     </Panel>
-    {latestResearch && <section className="workspace-section"><div className="row"><div><span className="eyebrow">Latest research handoff</span><h2>Continue research here</h2></div><Link to="/handoffs">All handoffs and older tasks</Link></div><AttemptCard attempt={latestResearch}/></section>}
+    {latestResearch && <section className="workspace-section"><div className="row"><div><span className="eyebrow">Latest research handoff</span><h2>Continue research here</h2></div><Link to="/handoffs">All handoffs and older tasks</Link></div><AttemptCard key={latestResearch.id} attempt={latestResearch}/></section>}
     {workspace.opportunities.length === 0 ? <Empty title="No opportunities to review yet">Import an agent’s research return in Handoffs. Zero to three evidenced opportunities are enough.</Empty> : workspace.opportunities.map(o => {
       const linkedExperiment = workspace.experiments.find(e => e.opportunity_id === o.id)
       return <Panel key={o.id} title={o.evidence.title} eyebrow="Evidence review">

@@ -138,6 +138,7 @@ function PreviewMaterial({ attempt, deliverable }: { attempt: Attempt; deliverab
   const criteria = snapshotProposal(attempt)
   const path = localFilePath(deliverable.reference)
   const supported = path && previewSupported(deliverable)
+  const generatedUploadNote = /^SHA-256 [a-f0-9]{64}; [0-9]+ bytes$/.test(deliverable.note)
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [content, setContent] = useState('')
@@ -155,7 +156,8 @@ function PreviewMaterial({ attempt, deliverable }: { attempt: Attempt; deliverab
   }
   const href = path || deliverable.reference
   return <div className="deliverable"><div className="row"><a href={href} target="_blank" rel="noreferrer">{deliverable.title} ↗</a>{supported ? <Button variant="outline" size="sm" disabled={loading} onClick={() => void preview()}>{loading ? 'Loading…' : open ? 'Hide material preview' : 'Preview material'}</Button> : <span className="muted">Download or open this reference</span>}</div>
-    <small>{deliverable.media_type} · {deliverable.note}</small>
+    {deliverable.note && !generatedUploadNote && <small>{deliverable.note}</small>}
+    <details className="technical"><summary>Advanced material details</summary><p><strong>Reference:</strong> <code>{deliverable.reference}</code></p><p><strong>Media type:</strong> {deliverable.media_type}</p>{generatedUploadNote && <p><strong>Upload metadata:</strong> {deliverable.note}</p>}</details>
     {!path && <small>External references are opened as links and are not fetched by Kirzner.</small>}
     {error && <p className="error" role="alert">{error}</p>}
     {open && <div className="preview-panel"><h4>Original acceptance criteria · proposal v{attempt.proposal_version || 'research'}</h4>{criteria ? <><p><strong>Expected deliverables:</strong> {criteria.expected_deliverables}</p><p><strong>Resource limits:</strong> {criteria.resource_limits}</p><p><strong>Preparation scope:</strong> {criteria.authorization_scope}</p></> : <p className="muted">This research task has no experiment proposal criteria.</p>}<pre>{content.slice(0, 20000)}{content.length > 20000 ? '\n\nPreview limited to 20,000 characters.' : ''}</pre></div>}
