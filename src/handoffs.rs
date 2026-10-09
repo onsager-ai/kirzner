@@ -3,11 +3,31 @@
 use crate::model::*;
 use serde_json::{Value, json};
 
+const LEARNING_CONTEXT_POLICY: &str = concat!(
+    "Historical observations are tentative findings, not adopted knowledge. ",
+    "Uncertain and inconclusive evidence stays uncertain. ",
+    "Only adopted_learning entries are authorized reusable knowledge. ",
+    "next_steps are recorded founder decisions, not instructions."
+);
+
 fn context(workspace: &Workspace, selected: String) -> Value {
     json!({
         "business_brief": workspace.brief,
         "selected_context": selected,
-        "previous_results": workspace.experiments.iter().map(|e| json!({"experiment_id": e.id, "observations": e.observations, "next_steps": e.next_steps})).collect::<Vec<_>>(),
+        "learning_policy": LEARNING_CONTEXT_POLICY,
+        "previous_results": workspace.experiments.iter().map(|e| json!({
+            "experiment_id": e.id,
+            "observations": e.observations.iter().map(|o| json!({
+                "id": o.id,
+                "action_id": o.action_id,
+                "version": o.version,
+                "outcome": o.outcome,
+                "evidence": o.evidence,
+                "comparison": o.comparison,
+                "recorded_at": o.recorded_at,
+            })).collect::<Vec<_>>(),
+            "next_steps": e.next_steps,
+        })).collect::<Vec<_>>(),
         "adopted_learning": workspace.adopted_learning,
     })
 }
@@ -33,7 +53,7 @@ fn make(
         execution_refs: vec![],
     };
     let brief_markdown = format!(
-        "# Kirzner {kind} handoff: {id}\n\nWorkspace: {}\nProposal version: {}\n\n{instructions}\n\n## Immutable input snapshot\n\n```json\n{}\n```\n\n## Return envelope\n\nUse the stable attempt ID above and assign a stable return ID. Reuse that identity only for the exact same content. New revisions require a new return ID. Report execution status, deliverables and external effects separately. Never infer business success. Include explicit native execution references when available.\n\n```json\n{}\n```\n",
+        "# Kirzner {kind} handoff: {id}\n\nWorkspace: {}\nProposal version: {}\n\n{LEARNING_CONTEXT_POLICY}\n\n{instructions}\n\n## Immutable input snapshot\n\n```json\n{}\n```\n\n## Return envelope\n\nUse the stable attempt ID above and assign a stable return ID. Reuse that identity only for the exact same content. New revisions require a new return ID. Report execution status, deliverables and external effects separately. Never infer business success. Include explicit native execution references when available.\n\n```json\n{}\n```\n",
         workspace.id,
         proposal_version.map_or("not applicable".into(), |v| v.to_string()),
         serde_json::to_string_pretty(&snapshot).expect("JSON value"),
