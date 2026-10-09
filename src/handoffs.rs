@@ -67,8 +67,8 @@ fn make(
     let template = ReturnInput {
         attempt_id: id.clone(),
         return_id: format!("{id}-return-1"),
-        status: "succeeded".into(),
-        external_effects: "none".into(),
+        status: "unknown".into(),
+        external_effects: "unknown".into(),
         summary: String::new(),
         deliverables: vec![],
         opportunities: vec![],
@@ -77,7 +77,7 @@ fn make(
         brief_suggestion: None,
     };
     let brief_markdown = format!(
-        "# Kirzner {kind} handoff: {id}\n\nWorkspace: {}\nProposal version: {}\n\n{LEARNING_CONTEXT_POLICY}\n\n{instructions}\n\n## Immutable input snapshot\n\n```json\n{}\n```\n\n## Return envelope\n\nThe attempt ID and first return ID are prefilled. Reuse that identity only for the exact same content; changed output needs a fresh return ID. Selected-task paste can supply omitted attempt_id and generate a stable content-hash return_id when omitted or blank. File import retains the explicit IDs. Report execution status, deliverables and external effects separately. Never infer business success. Include explicit native execution references when available.\n\nOptional brief_suggestion uses the business brief shape (required product, objective, constraints; optional customer, capabilities, time_budget, money_budget, channels, materials). Preserve known facts and leave unknowns empty. A suggestion is not saved or adopted until founder review.\n\n```json\n{}\n```\n",
+        "# Kirzner {kind} handoff: {id}\n\nWorkspace: {}\nProposal version: {}\n\n{LEARNING_CONTEXT_POLICY}\n\n{instructions}\n\n## Immutable input snapshot\n\n```json\n{}\n```\n\n## Return envelope\n\nThe attempt ID and first return ID are prefilled. Reuse that identity only for the exact same content; changed output needs a fresh return ID. Selected-task paste can supply omitted attempt_id and generate a stable content-hash return_id when omitted or blank. File import retains the explicit IDs. Status and external_effects start unknown; verify and set each explicitly. A succeeded research return with zero opportunities needs an explicit no_opportunity_reason. Unknown status means the finding itself remains unknown. Report execution status, deliverables and external effects separately. Never infer business success. Include explicit native execution references when available.\n\nOptional brief_suggestion uses the business brief shape (required product, objective, constraints; optional customer, capabilities, time_budget, money_budget, channels, materials). Preserve known facts and leave unknowns empty. A suggestion is not saved or adopted until founder review.\n\n```json\n{}\n```\n",
         workspace.id,
         proposal_version.map_or("not applicable".into(), |v| v.to_string()),
         serde_json::to_string_pretty(&snapshot).expect("JSON value"),

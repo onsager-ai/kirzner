@@ -133,6 +133,20 @@ fn unresolved_effects(attempt: &Attempt) -> bool {
     })
 }
 
+fn experiment_has_unresolved_effects(workspace: &Workspace, experiment_id: &str) -> bool {
+    let source_attempt = workspace
+        .experiments
+        .iter()
+        .find(|e| e.id == experiment_id)
+        .and_then(|e| e.opportunity_id.as_ref())
+        .and_then(|id| workspace.opportunities.iter().find(|o| &o.id == id))
+        .map(|o| o.attempt_id.as_str());
+    workspace.attempts.iter().any(|a| {
+        (a.experiment_id.as_deref() == Some(experiment_id) || source_attempt == Some(a.id.as_str()))
+            && unresolved_effects(a)
+    })
+}
+
 fn validate_return(input: &ReturnInput, attempt: &Attempt) -> Result<()> {
     required(&input.return_id, "return ID")?;
     required(&input.summary, "summary")?;
@@ -220,7 +234,7 @@ fn action_materials(
         .iter()
         .filter(|a| a.experiment_id.as_deref() == Some(experiment_id))
         .collect();
-    if attempts.iter().any(|a| unresolved_effects(a)) {
+    if experiment_has_unresolved_effects(workspace, experiment_id) {
         return Err(BusinessError::Conflict(
             "Reconcile unknown effects before recording an external action".into(),
         ));
@@ -525,11 +539,7 @@ pub fn apply(workspace: &mut Workspace, command: Command) -> Result<Applied> {
                 .find(|e| e.id == experiment_id)
                 .ok_or_else(|| BusinessError::NotFound("Experiment not found".into()))?;
             authorized(experiment, version)?;
-            if workspace
-                .attempts
-                .iter()
-                .any(|a| a.experiment_id.as_ref() == Some(&experiment_id) && unresolved_effects(a))
-            {
+            if experiment_has_unresolved_effects(workspace, &experiment_id) {
                 return Err(BusinessError::Conflict(
                     "Reconcile unknown external effects before preparing another attempt".into(),
                 ));

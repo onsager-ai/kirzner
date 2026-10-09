@@ -30,6 +30,15 @@ fn reject_unchanged(w: &Workspace, value: Value) {
         "Rejected input must not mutate business records"
     );
 }
+fn reject_unknown_effects(w: &Workspace, value: Value) {
+    let mut candidate = w.clone();
+    let error = marketing::apply(&mut candidate, command(value)).unwrap_err();
+    assert!(
+        error.to_string().contains("Reconcile unknown"),
+        "Unexpected blocker: {error}"
+    );
+    assert_eq!(&candidate, w);
+}
 async fn apply(store: &BusinessStore, w: &mut Workspace, value: Value) -> marketing::Applied {
     let revision = w.revision;
     let result = marketing::apply(w, command(value)).unwrap();
@@ -71,7 +80,20 @@ async fn founder_flow(url: &str, id: &str) {
     assert!(w.attempts[0].brief_markdown.contains("attempt-1-return-1"));
     assert!(w.attempts[0].brief_markdown.contains("experiment_draft"));
     assert!(w.attempts[0].brief_markdown.contains("brief_suggestion"));
-    let original = research_return();
+    let template_text = w.attempts[0]
+        .brief_markdown
+        .rsplit("```json\n")
+        .next()
+        .unwrap()
+        .split("\n```")
+        .next()
+        .unwrap();
+    let template: Value = serde_json::from_str(template_text).unwrap();
+    assert_eq!(template["status"], "unknown");
+    assert_eq!(template["external_effects"], "unknown");
+    let source_snapshot = w.attempts[0].snapshot.clone();
+    let mut original = research_return();
+    original["external_effects"] = "unknown".into();
     let original_text = format!("  {}\n", serde_json::to_string_pretty(&original).unwrap());
     let paste = json!({"type":"import_task_return", "attempt_id":"attempt-1", "payload":original, "original_text":original_text});
     apply(&store, &mut w, paste.clone()).await;
@@ -190,6 +212,31 @@ async fn founder_flow(url: &str, id: &str) {
     let prepare_v1 = json!({"type":"prepare_handoff", "experiment_id":"experiment-1", "version":1, "context":"Selected source"});
     reject_unchanged(&w, prepare_v1.clone());
     apply(&store, &mut w, json!({"type":"decide_proposal", "experiment_id":"experiment-1", "version":1, "approved":true, "reason":"Bounded synthetic approval"})).await;
+    reject_unknown_effects(&w, prepare_v1.clone());
+    let source_action = json!({"type":"record_action", "experiment_id":"experiment-1", "version":1, "reference":"Synthetic founder action", "note":"Synthetic evidence only", "self_prepared":true});
+    reject_unknown_effects(&w, source_action);
+    let mut old_version = w.clone();
+    marketing::apply(&mut old_version, command(json!({"type":"revise_proposal", "experiment_id":"experiment-1", "proposal":proposal("Historical source blocker fixture")}))).unwrap();
+    let historical_completion = old_version.experiments[0].proposals[1].created_at;
+    reject_unknown_effects(&old_version, historical(1, historical_completion, true));
+    let mut independent = w.clone();
+    marketing::apply(&mut independent, command(json!({"type":"create_experiment", "opportunity_id":null, "proposal":proposal("Independent legacy experiment")}))).unwrap();
+    marketing::apply(&mut independent, command(json!({"type":"decide_proposal", "experiment_id":"experiment-2", "version":1, "approved":true, "reason":"Synthetic independent scope"}))).unwrap();
+    marketing::apply(&mut independent, command(json!({"type":"prepare_handoff", "experiment_id":"experiment-2", "version":1, "context":"Independent source"}))).unwrap();
+    marketing::apply(&mut independent, command(json!({"type":"record_action", "experiment_id":"experiment-2", "version":1, "reference":"Independent synthetic action", "note":"No actual outreach", "self_prepared":true}))).unwrap();
+    assert_eq!(
+        w.attempts.len(),
+        1,
+        "Blocked operations never retry the source research"
+    );
+    apply(&store, &mut w, json!({"type":"reconcile_effects", "attempt_id":"attempt-1", "return_id":expected_id, "external_effects":"none", "evidence":"Synthetic explicit source check: no external write"})).await;
+    assert_eq!(w.attempts[0].snapshot, source_snapshot);
+    assert_eq!(w.attempts[0].returns[0].original, original);
+    assert_eq!(w.attempts[0].returns[0].original_text, original_text);
+    assert_eq!(
+        w.attempts[0].returns[0].input.external_effects, "unknown",
+        "Reconciliation appends evidence without rewriting a return"
+    );
     apply(&store, &mut w, prepare_v1).await;
     let immutable_snapshot = w.attempts[1].snapshot.clone();
     apply(&store, &mut w, json!({"type":"import_task_return", "attempt_id":"attempt-2", "payload":materials("unknown")})).await;
