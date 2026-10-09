@@ -11,8 +11,31 @@ const LEARNING_CONTEXT_POLICY: &str = concat!(
 );
 
 fn context(workspace: &Workspace, selected: String) -> Value {
+    let unknown_fields: Vec<_> = workspace
+        .brief
+        .as_ref()
+        .map(|brief| {
+            let mut fields: Vec<_> = [
+                ("customer", &brief.customer),
+                ("capabilities", &brief.capabilities),
+                ("time_budget", &brief.time_budget),
+                ("money_budget", &brief.money_budget),
+                ("channels", &brief.channels),
+            ]
+            .into_iter()
+            .filter(|(_, value)| value.trim().is_empty())
+            .map(|(field, _)| field)
+            .collect();
+            if brief.materials.is_empty() {
+                fields.push("materials");
+            }
+            fields
+        })
+        .unwrap_or_default();
     json!({
         "business_brief": workspace.brief,
+        "unknown_brief_fields": unknown_fields,
+        "brief_enrichment_policy": "Empty optional fields are unknown, not capability, permission or zero spend. Propose evidence-backed enrichment in brief_suggestion; only the founder can review, edit and save it. Separate facts from inferences and leave unverified claims unknown.",
         "selected_context": selected,
         "learning_policy": LEARNING_CONTEXT_POLICY,
         "previous_results": workspace.experiments.iter().map(|e| json!({
@@ -43,17 +66,18 @@ fn make(
     let id = next_id("attempt", workspace.attempts.len());
     let template = ReturnInput {
         attempt_id: id.clone(),
-        return_id: "executor-assigned-stable-return-id".into(),
-        status: "succeeded".into(),
-        external_effects: "none".into(),
+        return_id: format!("{id}-return-1"),
+        status: "unknown".into(),
+        external_effects: "unknown".into(),
         summary: String::new(),
         deliverables: vec![],
         opportunities: vec![],
         no_opportunity_reason: None,
         execution_refs: vec![],
+        brief_suggestion: None,
     };
     let brief_markdown = format!(
-        "# Kirzner {kind} handoff: {id}\n\nWorkspace: {}\nProposal version: {}\n\n{LEARNING_CONTEXT_POLICY}\n\n{instructions}\n\n## Immutable input snapshot\n\n```json\n{}\n```\n\n## Return envelope\n\nUse the stable attempt ID above and assign a stable return ID. Reuse that identity only for the exact same content. New revisions require a new return ID. Report execution status, deliverables and external effects separately. Never infer business success. Include explicit native execution references when available.\n\n```json\n{}\n```\n",
+        "# Kirzner {kind} handoff: {id}\n\nWorkspace: {}\nProposal version: {}\n\n{LEARNING_CONTEXT_POLICY}\n\n{instructions}\n\n## Immutable input snapshot\n\n```json\n{}\n```\n\n## Return envelope\n\nThe attempt ID and first return ID are prefilled. Reuse that identity only for the exact same content; changed output needs a fresh return ID. Selected-task paste can supply omitted attempt_id and generate a stable content-hash return_id when omitted or blank. File import retains the explicit IDs. Status and external_effects start unknown; verify and set each explicitly. A succeeded research return with zero opportunities needs an explicit no_opportunity_reason. Unknown status means the finding itself remains unknown. Report execution status, deliverables and external effects separately. Never infer business success. Include explicit native execution references when available.\n\nOptional brief_suggestion uses the business brief shape (required product, objective, constraints; optional customer, capabilities, time_budget, money_budget, channels, materials). Preserve known facts and leave unknowns empty. A suggestion is not saved or adopted until founder review.\n\n```json\n{}\n```\n",
         workspace.id,
         proposal_version.map_or("not applicable".into(), |v| v.to_string()),
         serde_json::to_string_pretty(&snapshot).expect("JSON value"),
@@ -88,7 +112,7 @@ pub fn research(
         None,
         None,
         snapshot,
-        "Research only within the authorization scope. Do not contact prospects or publish. Return zero to three opportunities, or state that no sufficiently actionable opportunity was found. Opportunity fields: title, customer_relevance, why_now, counterevidence, unknowns, validation_action, sources [{url,title,evidence}]. Keep inference separate from verified evidence.",
+        "Research only within the authorization scope. Do not contact prospects or publish. Return zero to three opportunities, or state that no sufficiently actionable opportunity was found. Opportunity fields: title, customer_relevance, why_now, counterevidence, unknowns, validation_action, sources [{url,title,evidence}]. Each opportunity may include an optional experiment_draft with all nine nonempty fields: audience, action, expected_deliverables, observation_window, success_criteria, failure_criteria, inconclusive_criteria, resource_limits, authorization_scope. Propose bounded preparation only; importing a draft creates no experiment or approval. Explicitly identify unknown_brief_fields and propose evidence-backed brief_suggestion enrichment when useful. Keep inference separate from verified evidence.",
     )
 }
 

@@ -1,22 +1,5 @@
 {
-  "product": "Kirzner: a lightweight AI business operator",
-  "customer": "Solo founders and small AI-native teams using existing agents",
-  "capabilities": "Verified at the starting repository commit: product direction and manual handoff design only; there was no application. This bootstrap adds a local business loop, but customer demand is not verified.",
-  "objective": "Identify a low-cost, evidence-backed way to ask potential users about manual agent handoff friction, after a founder reviews the preparation materials.",
-  "time_budget": "One focused preparation session; actual outreach requires a later founder decision",
-  "money_budget": "Zero spend",
-  "channels": "Product repository documentation and existing founder-owned channels; none used for outreach during this bootstrap",
-  "constraints": "No prospect contact, publication, purchase, deployment, or invented acquisition metrics. Research and preparation only.",
-  "materials": [
-    {
-      "url": "https://github.com/onsager-ai/kirzner/blob/6ee900ac7042e25866622d1958c520b3ba8a5784/README.md",
-      "title": "Kirzner product direction at the starting commit",
-      "evidence": "The repository identifies solo founders/small AI-native teams, manual task briefs, explicit founder decisions, and separation between agent returns and business outcomes. It explicitly states design-stage status."
-    },
-    {
-      "url": "https://github.com/onsager-ai/semon/blob/defe9d791a197902c5bebcba2e2b7fe87dd9a075/README.md",
-      "title": "Semon implemented capture and ordinary-read interfaces",
-      "evidence": "Semon documents cursor-aware Codex capture, separate trace storage, and ordinary occurrence-log reads. These are technical preparation evidence, not proof of customer demand."
-    }
-  ]
+  "product": "Semon: local session capture and ordinary occurrence-log reads for coding agents",
+  "objective": "Prepare an evidence-backed, low-cost validation plan for whether founders who use multiple external agent sessions need a simpler way to resume experiments",
+  "constraints": "Start with these three values only. Customer pain, participant access, installed capability, current alternatives, urgency, willingness to use or pay remain unknown. Prepare and review local materials only. No prospect contact, publication, purchase, deployment, private-log inspection, or invented customer evidence. External agents retain execution, credentials, retries, and scheduling."
 }

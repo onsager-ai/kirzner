@@ -7,7 +7,7 @@ use crate::{
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{DefaultBodyLimit, Path, Query, Request, State},
+    extract::{DefaultBodyLimit, Path, Query, Request, State, rejection::JsonRejection},
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -169,8 +169,9 @@ async fn semon_status(State(state): State<Arc<AppState>>) -> Json<crate::semon::
 
 async fn mutate(
     State(state): State<Arc<AppState>>,
-    Json(input): Json<Mutation>,
+    input: Result<Json<Mutation>, JsonRejection>,
 ) -> Result<Response, ApiError> {
+    let Json(input) = input.map_err(|error| ApiError(error.status(), error.body_text()))?;
     let mut workspace = state.store.load_workspace(&state.workspace_id).await?;
     if workspace.revision != input.expected_revision {
         return Err(StorageError::StaleRevision.into());

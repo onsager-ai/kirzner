@@ -8,8 +8,8 @@ export function Field({ name, label, value = '', hint, required = true, short = 
   const hintId = useId()
   return <label className="field"><span>{label}</span>{short ? <input aria-label={label} aria-describedby={hint ? hintId : undefined} name={name} defaultValue={value} required={required}/> : <textarea aria-label={label} aria-describedby={hint ? hintId : undefined} name={name} defaultValue={value} required={required} rows={3}/>} {hint && <small id={hintId}>{hint}</small>}</label>
 }
-export function Select({ name, label, options, value }: { name: string; label: string; options: { value: string; label: string }[]; value?: string }) {
-  return <label className="field"><span>{label}</span><select aria-label={label} name={name} defaultValue={value}>{options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
+export function Select({ name, label, options, value, required = true }: { name: string; label: string; options: { value: string; label: string }[]; value?: string; required?: boolean }) {
+  return <label className="field"><span>{label}</span><select aria-label={label} name={name} defaultValue={value} required={required}>{options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
 }
 export const text = (data: FormData, name: string) => String(data.get(name) || '')
 export function SourceEditor({ sources, onChange }: { sources: Source[]; onChange: (sources: Source[]) => void }) {

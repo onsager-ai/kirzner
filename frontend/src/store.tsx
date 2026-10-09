@@ -6,7 +6,7 @@ async function read() {
   if (!response.ok) throw new Error('Could not load the workspace. Check the local application and refresh.')
   return response.json() as Promise<Workspace>
 }
-const WorkspaceContext = createContext<{ workspace: Workspace; save: (command: Record<string, unknown>) => Promise<boolean>; busy: boolean } | null>(null)
+const WorkspaceContext = createContext<{ workspace: Workspace; save: (command: Record<string, unknown>) => Promise<boolean>; latestWorkspace: () => Workspace; busy: boolean } | null>(null)
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const query = useQuery({ queryKey: ['workspace'], queryFn: read, retry: 1 })
   const client = useQueryClient()
@@ -26,7 +26,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }
   if (query.isPending) return <div className="loading">Opening your workspace…</div>
   if (query.error) return <div role="alert" className="error"><p>{query.error.message}</p><button onClick={() => query.refetch()}>Try again</button></div>
-  return <WorkspaceContext value={{ workspace: query.data!, save, busy: mutation.isPending }}>
+  return <WorkspaceContext value={{ workspace: query.data!, save, latestWorkspace: () => client.getQueryData<Workspace>(['workspace']) || query.data!, busy: mutation.isPending }}>
     {error && <div role="alert" className="toast error">{error}<button aria-label="Dismiss error" onClick={() => setError('')}>×</button></div>}
     {notice && <div role="status" className="toast success">{notice}<button aria-label="Dismiss notice" onClick={() => setNotice('')}>×</button></div>}
     {children}

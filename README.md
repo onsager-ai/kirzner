@@ -3,9 +3,7 @@
 A lightweight, local-first AI business operator for solo founders and small
 AI-native teams. **Status: first local MVP.**
 
-One customer-acquisition loop: brief → evidenced opportunity → bounded proposal
-→ version-specific founder decision → manual agent handoff → deliverable review
-→ actual action and observations → next decision and explicitly adopted learning.
+One customer-acquisition loop: minimal brief → evidenced opportunity and experiment draft → version-specific founder decision → external agent handoff → deliverable review → actual action and observations → next decision and explicitly adopted learning.
 
 External agents own model loops, tools, credentials, execution permissions,
 native sessions, retries, and scheduling. Kirzner owns business records and
@@ -24,14 +22,9 @@ cargo run --locked
 # Open http://127.0.0.1:4317
 ```
 
-Save a business brief. Create a research handoff in Opportunities, download
-it in Handoffs, and give it to your existing agent. Import the returned JSON
-envelope or use the return form. Each opportunity needs source references,
-customer relevance, why now, counterevidence, unknowns, and cheap validation.
-Zero actionable opportunities is valid. Choose an opportunity, create a bounded
-proposal, approve its current version, and export preparation when needed.
-Accept materials, perform actual outreach outside Kirzner, then record the
-action, real observations, next decision, and explicitly adopted learning.
+Begin with the product, current objective, and resource constraints. Optional customer, capabilities, budget, time, and channels stay unknown until supported. Create a research task in Opportunities and copy its brief to your existing agent; downloads remain available. Paste the returned JSON beside that task, or import a file. An opportunity can include a bounded experiment draft and a proposed brief enrichment. Review the source evidence and unknowns, open the draft, edit prefilled fields, and separately approve its current version. Importing creates no approval or adopted business facts.
+
+Use Experiments as the working view: source opportunity, proposal, next step, preparation tasks, returned materials, reviews, actions, observations, and decisions are connected. Copy preparation to your agent, paste the return, and inspect supported local text/Markdown/JSON against the task's original acceptance criteria. Accepting material is separate from execution status and business outcome. Perform any actual action outside Kirzner, record its evidence, compare observations with the original criteria, and explicitly choose what happens next. A direct experiment link and the home resume control restore the selected experiment after reopening. Existing Handoffs, Results, file transfers, and full manual forms remain available.
 
 Default database: `data/kirzner.sqlite3`; migrations run at startup. Uploaded
 files: `data/files`. `KIRZNER_DATA_DIR`, `KIRZNER_PORT`, and
@@ -52,13 +45,16 @@ for the storage tradeoff and the core/Hub boundary.
 
 - A changed proposal needs fresh approval. Earlier decisions and late returns
   retain their original version.
+- An already completed action on an older approved proposal can be recorded through the separate historical-action form, with completion time and evidence. This does not authorize a new action; current actions still require current approval. Completion must fall within the original approval/revision interval. Whole-second timestamps and founder-supplied evidence are not authenticated execution proof.
 - Identical returns are no-ops. Conflicting content for one return identity
   is preserved for inspection without replacing the effective return.
 - Reported execution, deliverable acceptance, external effects, and business
   outcomes remain separate. Failed/partial materials remain inspectable.
 - Unknown effects need explicit reconciliation. Imports never retry external writes.
+- The unknown-effect barrier includes an experiment's explicitly linked source research task. Missing pasted task/return IDs are supplied automatically; explicit mismatched identities are rejected, and exact incoming originals remain recoverable under advanced details.
 - Accepting a draft creates neither publication nor business success. Results
   compare with the original criteria; learning needs an explicit adoption decision.
+- Historical observations retain factual evidence and original versions in future handoffs. Tentative proposed learning stays out of reusable knowledge until explicitly adopted.
 
 Uploaded files (up to 5 MB each) have durable content-hash references, title,
 media type, checksum and size metadata. External URLs are references and are
@@ -111,10 +107,7 @@ Native logs and remote URLs are not included in business backups.
 ## Worked example
 
 Start a fresh data directory, then `python3 scripts/worked_example.py`.
-The example uses a real Kirzner brief and externally authored Semon material
-with pinned, verifiable sources. It stops at preparation review because no
-outreach was performed. Customer metrics are not fabricated. The complete
-software loop is tested separately with labeled synthetic browser fixtures.
+The example uses Semon as the real product, a minimal brief with honest unknowns, a source-grounded but hypothetical experiment draft, and externally authored material with pinned sources. It stops at preparation review because no outreach was performed. Customer metrics are not fabricated. The complete software loop is tested separately with labeled synthetic browser fixtures.
 See [worked example](docs/worked-example.md).
 
 ## Validation
@@ -149,6 +142,7 @@ disposable PostgreSQL database, run `KIRZNER_TEST_POSTGRES_URL=... python3
 scripts/verify_backup.py` for backup/restore validation on both backends.
 
 See [the validation report](docs/validation.md) for actual checks and limitations.
+See [the founder experience](docs/founder-experience.md) for the flow, friction measurements, and evidence labels.
 
 ## Core and Hub
 

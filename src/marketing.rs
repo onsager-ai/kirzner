@@ -31,6 +31,28 @@ fn validate_sources(sources: &[Source]) -> Result<()> {
     Ok(())
 }
 
+fn validate_brief(brief: &Brief) -> Result<()> {
+    for (field, value) in [
+        ("product", &brief.product),
+        ("objective", &brief.objective),
+        ("constraints", &brief.constraints),
+    ] {
+        required(value, field)?;
+    }
+    for (field, value) in [
+        ("customer", &brief.customer),
+        ("capabilities", &brief.capabilities),
+        ("time budget", &brief.time_budget),
+        ("money budget", &brief.money_budget),
+        ("channels", &brief.channels),
+    ] {
+        if !value.is_empty() {
+            required(value, field)?;
+        }
+    }
+    validate_sources(&brief.materials)
+}
+
 fn validate_proposal(proposal: &ProposalInput) -> Result<()> {
     for (field, value) in [
         ("audience", &proposal.audience),
@@ -111,6 +133,20 @@ fn unresolved_effects(attempt: &Attempt) -> bool {
     })
 }
 
+fn experiment_has_unresolved_effects(workspace: &Workspace, experiment_id: &str) -> bool {
+    let source_attempt = workspace
+        .experiments
+        .iter()
+        .find(|e| e.id == experiment_id)
+        .and_then(|e| e.opportunity_id.as_ref())
+        .and_then(|id| workspace.opportunities.iter().find(|o| &o.id == id))
+        .map(|o| o.attempt_id.as_str());
+    workspace.attempts.iter().any(|a| {
+        (a.experiment_id.as_deref() == Some(experiment_id) || source_attempt == Some(a.id.as_str()))
+            && unresolved_effects(a)
+    })
+}
+
 fn validate_return(input: &ReturnInput, attempt: &Attempt) -> Result<()> {
     required(&input.return_id, "return ID")?;
     required(&input.summary, "summary")?;
@@ -177,26 +213,155 @@ fn validate_return(input: &ReturnInput, attempt: &Attempt) -> Result<()> {
             ));
         }
         validate_sources(&opportunity.sources)?;
+        if let Some(draft) = &opportunity.experiment_draft {
+            validate_proposal(draft)?;
+        }
+    }
+    if let Some(suggestion) = &input.brief_suggestion {
+        validate_brief(suggestion)?;
     }
     Ok(())
+}
+
+fn action_materials(
+    workspace: &Workspace,
+    experiment_id: &str,
+    version: u32,
+    self_prepared: bool,
+) -> Result<()> {
+    let attempts: Vec<_> = workspace
+        .attempts
+        .iter()
+        .filter(|a| a.experiment_id.as_deref() == Some(experiment_id))
+        .collect();
+    if experiment_has_unresolved_effects(workspace, experiment_id) {
+        return Err(BusinessError::Conflict(
+            "Reconcile unknown effects before recording an external action".into(),
+        ));
+    }
+    if !self_prepared
+        && !attempts.iter().any(|a| {
+            a.proposal_version == Some(version)
+                && a.returns.iter().any(|r| {
+                    a.reviews
+                        .iter()
+                        .rev()
+                        .find(|v| v.return_id == r.input.return_id)
+                        .is_some_and(|v| v.accepted)
+                })
+        })
+    {
+        return Err(BusinessError::Conflict(
+            "Accept returned materials for this version or explicitly record self-preparation"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
+fn content_digest(payload: &Value) -> String {
+    // serde_json's map order is canonical here; retain omitted optional fields.
+    format!("{:x}", Sha256::digest(payload.to_string().as_bytes()))
+}
+
+fn checked_original_text(payload: &Value, original_text: Option<String>) -> Result<String> {
+    let text = original_text.unwrap_or_else(|| payload.to_string());
+    let original: Value = serde_json::from_str(&text)
+        .map_err(|e| BusinessError::Invalid(format!("Invalid original return: {e}")))?;
+    if &original != payload {
+        return Err(BusinessError::Invalid(
+            "Original text and return content differ".into(),
+        ));
+    }
+    Ok(text)
+}
+
+fn import_return(
+    workspace: &mut Workspace,
+    normalized: Value,
+    original: Value,
+    original_text: Option<String>,
+) -> Result<Applied> {
+    let original_text = checked_original_text(&original, original_text)?;
+    let input: ReturnInput = serde_json::from_value(normalized.clone())
+        .map_err(|e| BusinessError::Invalid(format!("Invalid return: {e}")))?;
+    let digest = content_digest(&normalized);
+    let attempt = workspace
+        .attempts
+        .iter()
+        .find(|a| a.id == input.attempt_id)
+        .ok_or_else(|| BusinessError::NotFound("Return refers to an unknown attempt".into()))?;
+    if let Some(existing) = attempt
+        .returns
+        .iter()
+        .find(|r| r.input.return_id == input.return_id)
+    {
+        // API serialization can expand defaults or omit null optional fields.
+        // Equivalent typed input leaves the original payload and digest intact.
+        if existing.digest == digest || existing.input == input {
+            return Ok(unchanged());
+        }
+        if workspace.return_conflicts.iter().any(|c| {
+            c.attempt_id == input.attempt_id
+                && c.return_id == input.return_id
+                && c.incoming_digest == digest
+        }) {
+            return Ok(Applied {
+                changed: false,
+                conflict: true,
+                message: "This conflicting return is already preserved",
+            });
+        }
+        workspace.return_conflicts.push(ReturnConflict {
+            attempt_id: input.attempt_id,
+            return_id: input.return_id,
+            existing_digest: existing.digest.clone(),
+            incoming_digest: digest,
+            original,
+            original_text,
+            recorded_at: now(),
+        });
+        return Ok(Applied {
+            changed: true,
+            conflict: true,
+            message: "Conflicting return preserved; effective return unchanged",
+        });
+    }
+    validate_return(&input, attempt)?;
+    for evidence in &input.opportunities {
+        workspace.opportunities.push(Opportunity {
+            id: next_id("opportunity", workspace.opportunities.len()),
+            attempt_id: input.attempt_id.clone(),
+            return_id: input.return_id.clone(),
+            evidence: evidence.clone(),
+            disposition: "unreviewed".into(),
+            decisions: vec![],
+        });
+    }
+    let attempt = attempt_mut(workspace, &input.attempt_id)?;
+    for reference in &input.execution_refs {
+        if !attempt.execution_refs.contains(reference) {
+            attempt.execution_refs.push(reference.clone());
+        }
+    }
+    attempt.returns.push(Receipt {
+        input,
+        digest,
+        original,
+        original_text,
+        imported_at: now(),
+    });
+    Ok(Applied {
+        changed: true,
+        conflict: false,
+        message: "Saved",
+    })
 }
 
 pub fn apply(workspace: &mut Workspace, command: Command) -> Result<Applied> {
     match command {
         Command::SaveBrief { brief } => {
-            for (field, value) in [
-                ("product", &brief.product),
-                ("customer", &brief.customer),
-                ("capabilities", &brief.capabilities),
-                ("objective", &brief.objective),
-                ("time budget", &brief.time_budget),
-                ("money budget", &brief.money_budget),
-                ("channels", &brief.channels),
-                ("constraints", &brief.constraints),
-            ] {
-                required(value, field)?;
-            }
-            validate_sources(&brief.materials)?;
+            validate_brief(&brief)?;
             if workspace.brief.as_ref() == Some(&brief) {
                 return Ok(unchanged());
             }
@@ -271,6 +436,61 @@ pub fn apply(workspace: &mut Workspace, command: Command) -> Result<Applied> {
                 next_steps: vec![],
             });
         }
+        Command::CreateDraftExperiment {
+            opportunity_id,
+            proposal,
+        } => {
+            if workspace.brief.is_none() {
+                return Err(BusinessError::Invalid("Save a business brief first".into()));
+            }
+            let opportunity = workspace
+                .opportunities
+                .iter()
+                .find(|o| o.id == opportunity_id)
+                .ok_or_else(|| BusinessError::NotFound("Opportunity not found".into()))?;
+            if workspace
+                .experiments
+                .iter()
+                .any(|e| e.opportunity_id.as_ref() == Some(&opportunity_id))
+            {
+                return Ok(unchanged());
+            }
+            let proposal = proposal
+                .or_else(|| opportunity.evidence.experiment_draft.clone())
+                .ok_or_else(|| {
+                    BusinessError::Invalid(
+                        "This opportunity has no experiment draft; supply an edited proposal"
+                            .into(),
+                    )
+                })?;
+            validate_proposal(&proposal)?;
+            // All validation precedes the atomic selection plus experiment creation.
+            let opportunity = workspace
+                .opportunities
+                .iter_mut()
+                .find(|o| o.id == opportunity_id)
+                .expect("validated opportunity");
+            opportunity.disposition = "choose".into();
+            opportunity.decisions.push(OpportunityDecision {
+                disposition: "choose".into(),
+                reason: "Founder selected this opportunity and reviewed its experiment draft"
+                    .into(),
+                recorded_at: now(),
+            });
+            workspace.experiments.push(Experiment {
+                id: next_id("experiment", workspace.experiments.len()),
+                opportunity_id: Some(opportunity_id),
+                proposals: vec![Proposal {
+                    version: 1,
+                    content: proposal,
+                    created_at: now(),
+                }],
+                decisions: vec![],
+                actions: vec![],
+                observations: vec![],
+                next_steps: vec![],
+            });
+        }
         Command::ReviseProposal {
             experiment_id,
             proposal,
@@ -321,11 +541,7 @@ pub fn apply(workspace: &mut Workspace, command: Command) -> Result<Applied> {
                 .find(|e| e.id == experiment_id)
                 .ok_or_else(|| BusinessError::NotFound("Experiment not found".into()))?;
             authorized(experiment, version)?;
-            if workspace
-                .attempts
-                .iter()
-                .any(|a| a.experiment_id.as_ref() == Some(&experiment_id) && unresolved_effects(a))
-            {
+            if experiment_has_unresolved_effects(workspace, &experiment_id) {
                 return Err(BusinessError::Conflict(
                     "Reconcile unknown external effects before preparing another attempt".into(),
                 ));
@@ -348,82 +564,53 @@ pub fn apply(workspace: &mut Workspace, command: Command) -> Result<Applied> {
             payload,
             original_text,
         } => {
-            let input: ReturnInput = serde_json::from_value(payload.clone())
-                .map_err(|e| BusinessError::Invalid(format!("Invalid return: {e}")))?;
-            let original_text = original_text.unwrap_or_else(|| payload.to_string());
-            let original_value: Value = serde_json::from_str(&original_text)
-                .map_err(|e| BusinessError::Invalid(format!("Invalid original return: {e}")))?;
-            if original_value != payload {
-                return Err(BusinessError::Invalid(
-                    "Original text and return content differ".into(),
+            return import_return(workspace, payload.clone(), payload, original_text);
+        }
+        Command::ImportTaskReturn {
+            attempt_id,
+            payload,
+            original_text,
+        } => {
+            // Check the original bytes before making any task-scoped changes.
+            let original_text = checked_original_text(&payload, original_text)?;
+            if !workspace.attempts.iter().any(|a| a.id == attempt_id) {
+                return Err(BusinessError::NotFound(
+                    "Selected handoff task not found".into(),
                 ));
             }
-            let digest = format!("{:x}", Sha256::digest(payload.to_string().as_bytes()));
-            let attempt = workspace
-                .attempts
-                .iter()
-                .find(|a| a.id == input.attempt_id)
-                .ok_or_else(|| {
-                    BusinessError::NotFound("Return refers to an unknown attempt".into())
-                })?;
-            if let Some(existing) = attempt
-                .returns
-                .iter()
-                .find(|r| r.input.return_id == input.return_id)
-            {
-                if existing.digest == digest {
-                    return Ok(unchanged());
+            let mut normalized = payload.clone();
+            let object = normalized
+                .as_object_mut()
+                .ok_or_else(|| BusinessError::Invalid("Return must be a JSON object".into()))?;
+            match object.get("attempt_id") {
+                Some(Value::String(id)) if id == &attempt_id => {}
+                None => {
+                    object.insert("attempt_id".into(), Value::String(attempt_id));
                 }
-                if !workspace.return_conflicts.iter().any(|c| {
-                    c.attempt_id == input.attempt_id
-                        && c.return_id == input.return_id
-                        && c.incoming_digest == digest
-                }) {
-                    workspace.return_conflicts.push(ReturnConflict {
-                        attempt_id: input.attempt_id,
-                        return_id: input.return_id,
-                        existing_digest: existing.digest.clone(),
-                        incoming_digest: digest,
-                        original: payload,
-                        original_text,
-                        recorded_at: now(),
-                    });
-                    return Ok(Applied {
-                        changed: true,
-                        conflict: true,
-                        message: "Conflicting return preserved; effective return unchanged",
-                    });
-                }
-                return Ok(Applied {
-                    changed: false,
-                    conflict: true,
-                    message: "This conflicting return is already preserved",
-                });
-            }
-            validate_return(&input, attempt)?;
-            for evidence in &input.opportunities {
-                workspace.opportunities.push(Opportunity {
-                    id: next_id("opportunity", workspace.opportunities.len()),
-                    attempt_id: input.attempt_id.clone(),
-                    return_id: input.return_id.clone(),
-                    evidence: evidence.clone(),
-                    disposition: "unreviewed".into(),
-                    decisions: vec![],
-                });
-            }
-            let attempt = attempt_mut(workspace, &input.attempt_id)?;
-            for reference in &input.execution_refs {
-                if !attempt.execution_refs.contains(reference) {
-                    attempt.execution_refs.push(reference.clone());
+                _ => {
+                    return Err(BusinessError::Invalid(
+                        "Return attempt_id does not match the selected task".into(),
+                    ));
                 }
             }
-            attempt.returns.push(Receipt {
-                input,
-                digest,
-                original: payload,
-                original_text,
-                imported_at: now(),
-            });
+            let missing_return_id = match object.get("return_id") {
+                None => true,
+                Some(Value::String(id)) => id.trim().is_empty(),
+                _ => {
+                    return Err(BusinessError::Invalid(
+                        "return_id must be text or omitted".into(),
+                    ));
+                }
+            };
+            if missing_return_id {
+                object.remove("return_id");
+                let identity = content_digest(&normalized);
+                normalized.as_object_mut().expect("object").insert(
+                    "return_id".into(),
+                    Value::String(format!("return-{identity}")),
+                );
+            }
+            return import_return(workspace, normalized, payload, Some(original_text));
         }
         Command::ReviewReturn {
             attempt_id,
@@ -494,34 +681,7 @@ pub fn apply(workspace: &mut Workspace, command: Command) -> Result<Applied> {
                 .find(|e| e.id == experiment_id)
                 .ok_or_else(|| BusinessError::NotFound("Experiment not found".into()))?;
             authorized(experiment, version)?;
-            let attempts: Vec<_> = workspace
-                .attempts
-                .iter()
-                .filter(|a| {
-                    a.experiment_id.as_ref() == Some(&experiment_id)
-                        && a.proposal_version == Some(version)
-                })
-                .collect();
-            if attempts.iter().any(|a| unresolved_effects(a)) {
-                return Err(BusinessError::Conflict(
-                    "Reconcile unknown effects before recording a new external action".into(),
-                ));
-            }
-            if !self_prepared
-                && !attempts.iter().any(|a| {
-                    a.returns.iter().any(|r| {
-                        a.reviews
-                            .iter()
-                            .rev()
-                            .find(|v| v.return_id == r.input.return_id)
-                            .is_some_and(|v| v.accepted)
-                    })
-                })
-            {
-                return Err(BusinessError::Conflict(
-                    "Accept returned materials or explicitly record self-preparation".into(),
-                ));
-            }
+            action_materials(workspace, &experiment_id, version, self_prepared)?;
             let experiment = experiment_mut(workspace, &experiment_id)?;
             experiment.actions.push(Action {
                 id: next_id("action", experiment.actions.len()),
@@ -529,6 +689,67 @@ pub fn apply(workspace: &mut Workspace, command: Command) -> Result<Applied> {
                 reference,
                 note,
                 self_prepared,
+                historical: false,
+                completed_at: None,
+                recorded_at: now(),
+            });
+        }
+        Command::RecordHistoricalAction {
+            experiment_id,
+            version,
+            reference,
+            note,
+            self_prepared,
+            completed_at,
+        } => {
+            required(&reference, "historical action reference")?;
+            required(&note, "founder-supplied historical action evidence/note")?;
+            let experiment = workspace
+                .experiments
+                .iter()
+                .find(|e| e.id == experiment_id)
+                .ok_or_else(|| BusinessError::NotFound("Experiment not found".into()))?;
+            let index = experiment
+                .proposals
+                .iter()
+                .position(|p| p.version == version)
+                .ok_or_else(|| {
+                    BusinessError::NotFound("Historical proposal version not found".into())
+                })?;
+            let next = experiment.proposals.get(index + 1).ok_or_else(|| {
+                BusinessError::Conflict("Use RecordAction for the current proposal version".into())
+            })?;
+            if completed_at == 0 || completed_at > now() {
+                return Err(BusinessError::Invalid(
+                    "Completion time must be a nonzero past timestamp".into(),
+                ));
+            }
+            if completed_at < experiment.proposals[index].created_at
+                || completed_at > next.created_at
+            {
+                return Err(BusinessError::Conflict("Completion must fall within the original proposal's interval, up to its next revision".into()));
+            }
+            let decision = experiment
+                .decisions
+                .iter()
+                .enumerate()
+                .filter(|(_, d)| d.version == version && d.recorded_at <= completed_at)
+                .max_by_key(|(index, d)| (d.recorded_at, *index));
+            if !decision.is_some_and(|(_, d)| d.approved) {
+                return Err(BusinessError::Conflict(
+                    "The original proposal was not approved at completion time".into(),
+                ));
+            }
+            action_materials(workspace, &experiment_id, version, self_prepared)?;
+            let experiment = experiment_mut(workspace, &experiment_id)?;
+            experiment.actions.push(Action {
+                id: next_id("action", experiment.actions.len()),
+                version,
+                reference,
+                note,
+                self_prepared,
+                historical: true,
+                completed_at: Some(completed_at),
                 recorded_at: now(),
             });
         }

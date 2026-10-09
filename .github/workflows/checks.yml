@@ -1,5 +1,11 @@
 name: checks
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   local-mvp:
     runs-on: ubuntu-latest
@@ -30,18 +36,47 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
       - run: cargo test --locked --test business_loop postgres_complete_loop_and_restart -- --ignored
+      - run: cargo test --locked --test founder_flow postgres_founder_flow_and_restart -- --ignored
       - run: npm --prefix frontend ci && npm --prefix frontend run build
       - run: cargo build --locked
+      - name: Worked example over HTTP (synthetic planning data)
+        run: |
+          mkdir -p test-results
+          worked_example_data_dir="$(mktemp -d)"
+          KIRZNER_DATA_DIR="$worked_example_data_dir" KIRZNER_PORT=4318 target/debug/kirzner > /tmp/kirzner-ci-worked-example.log 2>&1 &
+          app_pid=$!
+          trap 'status=$?; if test -f /tmp/kirzner-ci-worked-example.log; then tail -n 200 /tmp/kirzner-ci-worked-example.log > test-results/app-worked-example.log; fi; kill "$app_pid" 2>/dev/null || true; exit "$status"' EXIT
+          for attempt in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:4318/api/health > /dev/null; then break; fi
+            sleep 0.2
+          done
+          curl -fsS http://127.0.0.1:4318/api/health > /dev/null
+          python3 scripts/worked_example.py --url http://127.0.0.1:4318 --result test-results/worked-example.json
       - name: Browser journey (synthetic)
         run: |
+          mkdir -p test-results
           frontend/node_modules/.bin/playwright-core install --with-deps chromium
           export CHROMIUM_PATH="$(find "$HOME/.cache/ms-playwright" -type f -path '*/chrome-linux64/chrome' | head -1)"
           test -n "$CHROMIUM_PATH"
-          KIRZNER_DATA_DIR=/tmp/kirzner-ci target/debug/kirzner > /tmp/kirzner-ci.log 2>&1 &
+          KIRZNER_DATA_DIR=/tmp/kirzner-ci-browser KIRZNER_PORT=4317 target/debug/kirzner > /tmp/kirzner-ci-browser.log 2>&1 &
           app_pid=$!
-          trap 'kill "$app_pid"' EXIT
+          trap 'status=$?; if test -f /tmp/kirzner-ci-browser.log; then tail -n 200 /tmp/kirzner-ci-browser.log > test-results/app-browser.log; fi; kill "$app_pid" 2>/dev/null || true; exit "$status"' EXIT
           for attempt in $(seq 1 50); do
             if curl -fsS http://127.0.0.1:4317/api/health > /dev/null; then break; fi
             sleep 0.2
           done
-          npm --prefix frontend run test:browser
+          KIRZNER_TEST_URL=http://127.0.0.1:4317 npm --prefix frontend run test:browser
+      - name: Collect bounded logs
+        if: always()
+        run: |
+          mkdir -p test-results
+          if test -f /tmp/kirzner-ci-worked-example.log && ! test -f test-results/app-worked-example.log; then tail -n 200 /tmp/kirzner-ci-worked-example.log > test-results/app-worked-example.log; fi
+          if test -f /tmp/kirzner-ci-browser.log && ! test -f test-results/app-browser.log; then tail -n 200 /tmp/kirzner-ci-browser.log > test-results/app-browser.log; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: founder-flow-evidence
+          path: |
+            test-results/
+            frontend/test-results/
+          if-no-files-found: ignore

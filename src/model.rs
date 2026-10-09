@@ -39,13 +39,19 @@ pub fn required(value: &str, field: &str) -> Result<()> {
 #[serde(deny_unknown_fields)]
 pub struct Brief {
     pub product: String,
+    #[serde(default)]
     pub customer: String,
+    #[serde(default)]
     pub capabilities: String,
     pub objective: String,
+    #[serde(default)]
     pub time_budget: String,
+    #[serde(default)]
     pub money_budget: String,
+    #[serde(default)]
     pub channels: String,
     pub constraints: String,
+    #[serde(default)]
     pub materials: Vec<Source>,
 }
 
@@ -67,6 +73,8 @@ pub struct OpportunityInput {
     pub unknowns: String,
     pub validation_action: String,
     pub sources: Vec<Source>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experiment_draft: Option<ProposalInput>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -133,6 +141,10 @@ pub struct Action {
     pub reference: String,
     pub note: String,
     pub self_prepared: bool,
+    #[serde(default)]
+    pub historical: bool,
+    #[serde(default)]
+    pub completed_at: Option<u64>,
     pub recorded_at: u64,
 }
 
@@ -221,6 +233,8 @@ pub struct ReturnInput {
     pub opportunities: Vec<OpportunityInput>,
     pub no_opportunity_reason: Option<String>,
     pub execution_refs: Vec<ExecutionRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief_suggestion: Option<Brief>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -315,6 +329,10 @@ pub enum Command {
         opportunity_id: Option<String>,
         proposal: ProposalInput,
     },
+    CreateDraftExperiment {
+        opportunity_id: String,
+        proposal: Option<ProposalInput>,
+    },
     ReviseProposal {
         experiment_id: String,
         proposal: ProposalInput,
@@ -338,6 +356,11 @@ pub enum Command {
         payload: Value,
         original_text: Option<String>,
     },
+    ImportTaskReturn {
+        attempt_id: String,
+        payload: Value,
+        original_text: Option<String>,
+    },
     ReviewReturn {
         attempt_id: String,
         return_id: String,
@@ -356,6 +379,14 @@ pub enum Command {
         reference: String,
         note: String,
         self_prepared: bool,
+    },
+    RecordHistoricalAction {
+        experiment_id: String,
+        version: u32,
+        reference: String,
+        note: String,
+        self_prepared: bool,
+        completed_at: u64,
     },
     RecordObservation {
         experiment_id: String,
