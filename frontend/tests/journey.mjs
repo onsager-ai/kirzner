@@ -857,8 +857,9 @@ try {
   assert.equal(suggestionReceipt.original_text, suggestionReturnText)
   assert.deepEqual(suggestionReceipt.original, suggestionReturn)
   const suggestionArticle = suggestionTask.locator('article.receipt').filter({ hasText: suggestionReturn.summary })
-  const suggestionPanel = suggestionArticle.locator('section.subpanel').filter({ has: suggestionArticle.getByRole('heading', { name: 'Suggested business brief · not applied', exact: true }) }).first()
-  await suggestionPanel.getByRole('heading', { name: 'Suggested business brief · not applied', exact: true }).waitFor()
+  const suggestionHeading = suggestionArticle.getByRole('heading', { level: 3, name: 'Suggested business brief · not applied', exact: true })
+  await suggestionHeading.waitFor()
+  const suggestionPanel = suggestionHeading.locator('xpath=..')
   assert.equal(await suggestionPanel.getByLabel('Current business objective', { exact: true }).inputValue(), briefSuggestion.objective)
   const founderReviewedObjective = 'SYNTHETIC founder-reviewed objective based on a suggestion; no market or customer claim is asserted.'
   await input('Current business objective', founderReviewedObjective, suggestionPanel)
