@@ -19,18 +19,17 @@ function experimentStage(experiment: Experiment, attempts: Attempt[]) {
   if (relevant.some(unresolvedEffects)) return 'Reconcile effects'
   if (!decision?.approved) return 'Needs decision'
   const currentAction = [...experiment.actions].reverse().find(a => a.version === current.version)
-  const currentAttempt = [...relevant].reverse().find(a => a.proposal_version === current.version)
-  if (!currentAction && !currentAttempt) return 'Prepare materials'
-  if (!currentAction && currentAttempt) {
-    if (currentAttempt.returns.length === 0) return 'Awaiting agent return'
-    const acceptedMaterials = currentAttempt.returns.some(receipt => receipt.input.deliverables.length > 0 && [...currentAttempt.reviews].reverse().find(entry => entry.return_id === receipt.input.return_id)?.accepted === true)
-    if (!acceptedMaterials) {
-      if (currentAttempt.returns.some(receipt => receipt.input.status !== 'succeeded')) return 'Review incomplete return'
-      if (currentAttempt.returns.every(receipt => receipt.input.deliverables.length === 0)) return 'Prepare materials'
-      return 'Review materials'
-    }
+  const currentAttempts = relevant.filter(a => a.experiment_id === experiment.id && a.proposal_version === current.version)
+  if (!currentAction && currentAttempts.length === 0) return 'Prepare materials'
+  if (!currentAction) {
+    const acceptedMaterials = currentAttempts.some(attempt => attempt.returns.some(receipt => receipt.input.deliverables.length > 0 && [...attempt.reviews].reverse().find(entry => entry.return_id === receipt.input.return_id)?.accepted === true))
+    if (acceptedMaterials) return 'Record actual action'
+    const latestAttempt = currentAttempts.at(-1)!
+    if (latestAttempt.returns.length === 0) return 'Awaiting agent return'
+    if (latestAttempt.returns.some(receipt => receipt.input.status !== 'succeeded')) return 'Review incomplete return'
+    if (latestAttempt.returns.every(receipt => receipt.input.deliverables.length === 0)) return 'Prepare materials'
+    return 'Review materials'
   }
-  if (!currentAction) return 'Record actual action'
   const observations = experiment.observations.filter(o => o.action_id === currentAction.id)
   if (observations.length === 0) return 'Observe against original criteria'
   if (observations.some(o => !experiment.next_steps.some(n => n.observation_id === o.id))) return 'Decide next'
@@ -110,11 +109,11 @@ export function ExperimentsPage() {
       <label className="field"><span>Select experiment</span><select aria-label="Select experiment" value={selected?.id || ''} onChange={event => selectExperiment(event.target.value)}>{workspace.experiments.map(e => <option key={e.id} value={e.id}>{e.proposals.at(-1)?.content.action || 'Experiment'} · version {e.proposals.at(-1)?.version}</option>)}</select></label>
       {selected && <><div className="stage-banner"><div><span className="eyebrow">Current next step</span><h3>{stage}</h3></div><Status tone={stage === 'Recorded next decision' ? 'good' : stage === 'Reconcile effects' ? 'amber' : ''}>{stage}</Status></div>
         <OpportunitySource opportunityId={selected.opportunity_id}/>
-        <ProposalEditor experiment={selected} blocked={effectsBlocked}/>
+        <ProposalEditor key={selected.id} experiment={selected} blocked={effectsBlocked}/>
         <section className="workspace-section"><div className="row"><div><span className="eyebrow">Original handoffs and returns</span><h2>Preparation and research materials</h2></div><Link to="/handoffs">All handoffs</Link></div>
           {relatedAttempts.length === 0 ? <p className="muted">No research or preparation task is linked yet. Approve the current proposal to prepare a handoff.</p> : [...relatedAttempts].reverse().map(attempt => <AttemptCard key={attempt.id} attempt={attempt} embedded/>)}
         </section>
-        <ResultCard experiment={selected} embedded/>
+        <ResultCard key={selected.id} experiment={selected} embedded/>
       </>}
     </Panel>}
     {workspace.experiments.length === 0 && <Empty title="No experiment yet">Review an evidenced opportunity draft or create a bounded proposal below.</Empty>}
