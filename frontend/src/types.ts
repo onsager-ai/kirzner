@@ -1,0 +1,16 @@
+export type Source = { url: string; title: string; evidence: string }
+export type Brief = { product: string; customer: string; capabilities: string; objective: string; time_budget: string; money_budget: string; channels: string; constraints: string; materials: Source[] }
+export type ProposalInput = { audience: string; action: string; expected_deliverables: string; observation_window: string; success_criteria: string; failure_criteria: string; inconclusive_criteria: string; resource_limits: string; authorization_scope: string }
+export type OpportunityInput = { title: string; customer_relevance: string; why_now: string; counterevidence: string; unknowns: string; validation_action: string; sources: Source[] }
+export type Opportunity = { id: string; attempt_id: string; return_id: string; evidence: OpportunityInput; disposition: string; decisions: { disposition: string; reason: string }[] }
+export type Proposal = { version: number; content: ProposalInput; created_at: number }
+export type Decision = { version: number; approved: boolean; reason: string; recorded_at: number }
+export type Action = { id: string; version: number; reference: string; note: string; self_prepared: boolean }
+export type Observation = { id: string; action_id: string; version: number; outcome: string; evidence: string; comparison: string; learning: string }
+export type Experiment = { id: string; opportunity_id: string | null; proposals: Proposal[]; decisions: Decision[]; actions: Action[]; observations: Observation[]; next_steps: { observation_id: string; choice: string; reason: string }[] }
+export type ExecutionRef = { namespace: string; harness: string; session_id: string; machine: string | null; source_revision: string; segment: { start_offset: number; end_offset: number } | null; continuation: string | null }
+export type Deliverable = { title: string; reference: string; media_type: string; note: string }
+export type ReturnInput = { attempt_id: string; return_id: string; status: string; external_effects: string; summary: string; deliverables: Deliverable[]; opportunities: OpportunityInput[]; no_opportunity_reason: string | null; execution_refs: ExecutionRef[] }
+export type Receipt = { input: ReturnInput; digest: string; original: unknown; original_text: string; imported_at: number }
+export type Attempt = { id: string; kind: string; experiment_id: string | null; proposal_version: number | null; snapshot: unknown; brief_markdown: string; execution_refs: ExecutionRef[]; returns: Receipt[]; reviews: { return_id: string; accepted: boolean; note: string }[]; reconciliations: { return_id: string; external_effects: string; evidence: string }[] }
+export type Workspace = { id: string; revision: number; brief: Brief | null; brief_history: Brief[]; opportunities: Opportunity[]; experiments: Experiment[]; attempts: Attempt[]; return_conflicts: { attempt_id: string; return_id: string; original: unknown; original_text: string }[]; adopted_learning: { experiment_id: string; observation_id: string; text: string }[] }

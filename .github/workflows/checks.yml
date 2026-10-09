@@ -1,0 +1,47 @@
+name: checks
+on: [push, pull_request]
+jobs:
+  local-mvp:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: kirzner
+          POSTGRES_PASSWORD: kirzner
+          POSTGRES_DB: kirzner_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U kirzner"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      KIRZNER_TEST_POSTGRES_URL: postgresql://kirzner:kirzner@127.0.0.1:5432/kirzner_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - run: cargo test --locked --test business_loop postgres_complete_loop_and_restart -- --ignored
+      - run: npm --prefix frontend ci && npm --prefix frontend run build
+      - run: cargo build --locked
+      - name: Browser journey (synthetic)
+        run: |
+          frontend/node_modules/.bin/playwright-core install --with-deps chromium
+          export CHROMIUM_PATH="$(find "$HOME/.cache/ms-playwright" -type f -path '*/chrome-linux64/chrome' | head -1)"
+          test -n "$CHROMIUM_PATH"
+          KIRZNER_DATA_DIR=/tmp/kirzner-ci target/debug/kirzner > /tmp/kirzner-ci.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid"' EXIT
+          for attempt in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:4317/api/health > /dev/null; then break; fi
+            sleep 0.2
+          done
+          npm --prefix frontend run test:browser

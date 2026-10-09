@@ -1,91 +1,158 @@
 # Kirzner
 
-A lightweight AI business operator for solo founders and small AI-native teams.
+A lightweight, local-first AI business operator for solo founders and small
+AI-native teams. **Status: first local MVP.**
 
-Kirzner helps founders notice opportunities, make informed business decisions, hand off work to agents and tools, and learn from the results. Its guiding idea is entrepreneurial alertness; the founder retains judgment and authority over business commitments.
+One customer-acquisition loop: brief → evidenced opportunity → bounded proposal
+→ version-specific founder decision → manual agent handoff → deliverable review
+→ actual action and observations → next decision and explicitly adopted learning.
 
-**Status: design stage.** This is a fresh repository. The application and integrations described below are planned, not implemented.
+External agents own model loops, tools, credentials, execution permissions,
+native sessions, retries, and scheduling. Kirzner owns business records and
+judgment. It does not publish, contact prospects, run agents, or automatically
+retry external writes. Research can stand alone; founders can self-prepare.
 
-## Product direction
+## Run locally
 
-The work centers on four questions:
+Requires Rust 1.95.0 (pinned), Node 22.12+ and npm. SQLite is embedded;
+PostgreSQL is not required for the default application.
 
-- What is our business trying to achieve, and under which constraints?
-- Which opportunities or changes deserve attention, and why now?
-- Which decisions require the founder's judgment?
-- What work has been delegated, what came back, and what should happen next?
+```sh
+npm --prefix frontend ci
+npm --prefix frontend run build
+cargo run --locked
+# Open http://127.0.0.1:4317
+```
 
-Marketing and distribution provide an initial business use case. AI Industry Observatory / Living AI Competition Research is a separate planned module.
+Save a business brief. Create a research handoff in Opportunities, download
+it in Handoffs, and give it to your existing agent. Import the returned JSON
+envelope or use the return form. Each opportunity needs source references,
+customer relevance, why now, counterevidence, unknowns, and cheap validation.
+Zero actionable opportunities is valid. Choose an opportunity, create a bounded
+proposal, approve its current version, and export preparation when needed.
+Accept materials, perform actual outreach outside Kirzner, then record the
+action, real observations, next decision, and explicitly adopted learning.
 
-## Lightweight architecture
+Default database: `data/kirzner.sqlite3`; migrations run at startup. Uploaded
+files: `data/files`. `KIRZNER_DATA_DIR`, `KIRZNER_PORT`, and
+`KIRZNER_FRONTEND_DIR` override the corresponding local paths and port.
+The application binds IPv4 loopback and serves one local workspace.
 
-Keep one application with a small core, business modules, and thin external connections.
+For a dedicated PostgreSQL database:
 
-| Layer | Responsibility |
-| --- | --- |
-| Core | Business context, artifacts, decisions, handoffs, and receipts |
-| Business modules | Domain-specific records, task briefs, acceptance rules, and views |
-| Adapters | Transfer work to external agents or tools and receive results |
-| Storage | Durable records, source references, and files |
-| Application | A readable workspace for opportunities, decisions, delegated work, and results |
+```sh
+DATABASE_URL=postgresql://USER@127.0.0.1:5432/kirzner cargo run --locked
+```
 
-The core stays independent of agent vendors and business modules. External agents and tools handle research execution, model and tool operation, coding, publishing, browser interaction, and media production.
+Both backends implement equivalent business behavior with separate migrations.
+Do not use Semon's database as business storage. Read [architecture](docs/architecture.md)
+for the storage tradeoff and the core/Hub boundary.
 
-Modules use explicit imports and shared contracts. New abstractions should follow demonstrated needs across real modules.
+## Decisions and returns
 
-## Handoff and return
+- A changed proposal needs fresh approval. Earlier decisions and late returns
+  retain their original version.
+- Identical returns are no-ops. Conflicting content for one return identity
+  is preserved for inspection without replacing the effective return.
+- Reported execution, deliverable acceptance, external effects, and business
+  outcomes remain separate. Failed/partial materials remain inspectable.
+- Unknown effects need explicit reconciliation. Imports never retry external writes.
+- Accepting a draft creates neither publication nor business success. Results
+  compare with the original criteria; learning needs an explicit adoption decision.
 
-Each handoff records a versioned objective, selected context, inputs, expected deliverables, acceptance criteria, execution target, and authorization scope.
+Uploaded files (up to 5 MB each) have durable content-hash references, title,
+media type, checksum and size metadata. External URLs are references and are
+not copied or crawled. Original returns and handoff snapshots remain inspectable.
 
-- Decisions persist across sessions and refer to a specific proposal version.
-- A changed proposal requires a new applicable decision.
-- A returned result remains distinct from an accepted business outcome.
-- Repeated receipts are deduplicated.
-- Ambiguous external effects remain awaiting confirmation until reconciled.
+## Semon
 
-Start with exportable task briefs and importable results. Add one practical external adapter after the manual round trip works. The executing tool owns its execution environment and operational scheduling.
+Business records work without Semon. Install its pinned CLI to enable capture;
+see [Semon setup and verification](docs/semon.md) for explicit session
+correlation, native continuation, and ordinary/forensic boundaries.
 
-## Planned modules
+```sh
+KIRZNER_SEMON_CODEX_BIN=/absolute/path/to/semon-codex \
+  cargo run --locked -- capture-codex /native/codex/sessions /native/codex/history.jsonl
+```
 
-### Marketing
+Semon keeps a separate store and cursor. A native viewer/index is not proof of
+full capture. This cloud bootstrap verified persistence with synthetic inputs;
+real capture awaits a local session with native logs.
 
-Business positioning, evidenced opportunities, campaign proposals, and review of returned deliverables. Production and distribution are delegated through handoffs.
+## Backup and restore
 
-### Observatory
+Stop Kirzner and capture processes first. Back up the database **and** referenced
+files together. Python 3 is enough for SQLite; PostgreSQL also needs matching
+`pg_dump`/`pg_restore` tools.
 
-A living record of AI competition research:
+```sh
+python3 scripts/backup.py backup backups/first --data-dir data
+python3 scripts/backup.py restore backups/first --data-dir restored-data
+KIRZNER_DATA_DIR=restored-data cargo run --locked
+```
 
-- Events and source evidence, with versions and provenance.
-- Hypotheses, supporting and opposing evidence, and falsification conditions.
-- Forecasts with probabilities, deadlines, resolution rules, and revision history.
-- Historical replay and evaluation.
-- Later, explicit multi-party simulation experiments executed externally.
+`--sqlite-db PATH` supports a custom database location. For PostgreSQL use
+`--backend postgres` and `DATABASE_URL`. Restore to a fresh dedicated database
+and fresh files directory; the script verifies checksums, refuses existing
+SQLite/files targets, and uses a PostgreSQL transaction without cleaning an
+existing database.
 
-Observed facts, forecasts, and simulated results remain distinguishable. Historical replay is not sufficient proof of prospective forecasting skill.
+```sh
+DATABASE_URL=postgresql://USER@127.0.0.1:5432/kirzner \
+  python3 scripts/backup.py backup backups/pg-first --backend postgres --data-dir data
+# First create a fresh kirzner_restored database.
+DATABASE_URL=postgresql://USER@127.0.0.1:5432/kirzner_restored \
+  python3 scripts/backup.py restore backups/pg-first --backend postgres --data-dir restored-data
+```
 
-## Initial development sequence
+Semon backups are separate and retain the matching cursor and provenance.
+Native logs and remote URLs are not included in business backups.
 
-1. Define the small shared contracts and one worked example.
-2. Complete a durable context → proposal → decision → handoff → receipt → acceptance round trip.
-3. Add the marketing use case and one external connection.
-4. Add Observatory evidence, hypothesis, and forecast records.
-5. Expand capabilities only when a concrete user need justifies them.
+## Worked example
 
-The first milestone is a recoverable delegation loop, rather than completion of every named business function.
+Start a fresh data directory, then `python3 scripts/worked_example.py`.
+The example uses a real Kirzner brief and externally authored Semon material
+with pinned, verifiable sources. It stops at preparation review because no
+outreach was performed. Customer metrics are not fabricated. The complete
+software loop is tested separately with labeled synthetic browser fixtures.
+See [worked example](docs/worked-example.md).
 
-## Development principles
+## Validation
 
-- Keep modules independently understandable and testable.
-- Preserve source references and important business revisions.
-- Keep runtime, workflow, browser, and media infrastructure with external executors.
-- Test restart recovery, proposal-version decisions, receipt deduplication, and external failure handling.
-- Evaluate agent-produced content against a small set of real business cases.
-- Treat storage and transport choices as implementation decisions to validate in the first slice.
+```sh
+cargo fmt --check
+cargo clippy --all-targets --locked -- -D warnings
+cargo test --locked
+npm --prefix frontend run build
+```
 
-## 中文简介
+External tests are explicitly ignored without their prerequisites:
 
-Kirzner 的定位是面向独立创业者和小型 AI 团队的 AI 商业运营者：发现机会、支持判断、交接工作、回收结果并持续学习。
+```sh
+KIRZNER_TEST_POSTGRES_URL=postgresql://USER@127.0.0.1:5432/kirzner_test \
+KIRZNER_TEST_SEMON_CODEX_BIN=/absolute/path/to/semon-codex \
+KIRZNER_TEST_SEMON_BIN=/absolute/path/to/semon \
+  cargo test --locked -- --include-ignored
+```
 
-新版采用轻量核心、独立业务模块和薄连接层。重活交给外部 agent 或工具；商业上下文、决策、来源和结果记录保留在 Kirzner。行业研究方向作为 Observatory 模块逐步加入。
+Use a disposable PostgreSQL database. Parity tests cover the loop, restart,
+migration rerun, stale writers, version authorization, duplicate/conflicting
+returns, partial/failed/unknown results, and learning adoption. Semon tests
+are synthetic and never count as real-session capture.
 
-当前仓库处于设计阶段，尚未实现应用或连接器。
+Against a **fresh** running application:
+`CHROMIUM_PATH=/path/to/chromium npm --prefix frontend run test:browser`.
+`KIRZNER_TEST_URL` selects an alternate loopback instance. The browser suite
+creates synthetic records and checks routing/reload, uploaded files, version
+decisions, return conflicts, and desktop/mobile layouts. After populating a
+disposable PostgreSQL database, run `KIRZNER_TEST_POSTGRES_URL=... python3
+scripts/verify_backup.py` for backup/restore validation on both backends.
+
+See [the validation report](docs/validation.md) for actual checks and limitations.
+
+## Core and Hub
+
+`kirzner` is independently usable open-source core. The private `kirzner-hub`
+bootstrap depends on its library and built frontend. Cloud hosting, collaboration,
+identity/authorization, continuous operation, billing, and operations are future
+Hub capabilities. AI Industry Observatory is a separate future module.
