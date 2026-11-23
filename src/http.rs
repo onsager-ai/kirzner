@@ -1,7 +1,6 @@
 use crate::{
     handoffs, marketing,
     model::{BusinessError, Mutation, Workspace},
-    semon::SemonConnection,
     storage::{BusinessStore, StorageError},
 };
 use axum::{
@@ -23,7 +22,6 @@ pub struct AppState {
     pub store: BusinessStore,
     pub workspace_id: String,
     pub data_dir: PathBuf,
-    pub semon: SemonConnection,
     pub frontend_dir: PathBuf,
 }
 impl AppState {
@@ -31,7 +29,6 @@ impl AppState {
         Self {
             store,
             workspace_id: "local".into(),
-            semon: SemonConnection::from_env(&data_dir),
             data_dir,
             frontend_dir: "frontend/dist".into(),
         }
@@ -73,7 +70,6 @@ pub fn router(mut state: AppState, frontend: PathBuf) -> Router {
     Router::new()
         .route("/api/workspace", get(workspace).post(mutate))
         .route("/api/health", get(health))
-        .route("/api/semon", get(semon_status))
         .route("/api/handoffs/{id}", get(handoff))
         .route("/api/handoffs/{id}/continuation", get(continuation))
         .route("/api/files", post(upload))
@@ -163,10 +159,6 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
 async fn workspace(State(state): State<Arc<AppState>>) -> Result<Json<Workspace>, ApiError> {
     Ok(Json(state.store.load_workspace(&state.workspace_id).await?))
 }
-async fn semon_status(State(state): State<Arc<AppState>>) -> Json<crate::semon::SemonStatus> {
-    Json(state.semon.status().await)
-}
-
 async fn mutate(
     State(state): State<Arc<AppState>>,
     input: Result<Json<Mutation>, JsonRejection>,

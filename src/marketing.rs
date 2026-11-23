@@ -71,7 +71,7 @@ fn validate_proposal(proposal: &ProposalInput) -> Result<()> {
 }
 
 pub fn validate_execution_ref(reference: &ExecutionRef) -> Result<()> {
-    required(&reference.namespace, "Semon instance/source namespace")?;
+    required(&reference.namespace, "Execution source namespace")?;
     required(&reference.session_id, "native session ID")?;
     required(&reference.source_revision, "reference provenance/revision")?;
     one_of(

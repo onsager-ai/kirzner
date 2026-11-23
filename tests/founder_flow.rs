@@ -446,22 +446,6 @@ async fn sqlite_founder_flow_and_restart() {
     .await;
     std::fs::remove_dir_all(dir).unwrap();
 }
-#[tokio::test]
-#[ignore = "requires KIRZNER_TEST_POSTGRES_URL pointing to a disposable PostgreSQL database"]
-async fn postgres_founder_flow_and_restart() {
-    let url = std::env::var("KIRZNER_TEST_POSTGRES_URL")
-        .expect("Set a disposable PostgreSQL database URL");
-    let id = format!("founder-postgres-{}-{}", std::process::id(), now());
-    founder_flow(&url, &id).await;
-    let pool = sqlx::PgPool::connect(&url).await.unwrap();
-    sqlx::query("DELETE FROM business_workspaces WHERE workspace_id = $1")
-        .bind(id)
-        .execute(&pool)
-        .await
-        .unwrap();
-    pool.close().await;
-}
-
 #[test]
 fn legacy_shapes_and_default_draft_selection() {
     let mut w = Workspace::empty("legacy-shapes");

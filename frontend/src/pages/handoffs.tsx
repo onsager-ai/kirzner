@@ -91,14 +91,14 @@ function TaskReturnPaste({ attempt }: { attempt: Attempt }) {
 
 function ExecutionEditor({ attempt }: { attempt: Attempt }) {
   const { workspace, save, busy } = useWorkspace()
-  return <details><summary>Advanced execution references</summary><p className="muted">Copy the native session ID from your executor or Semon. These references are recorded as supplied, without inferred correlation.</p>
+  return <details><summary>Advanced execution references</summary><p className="muted">Copy the native session ID from your executor. These references are recorded as supplied, without inferred correlation.</p>
     <Form key={`execution-${workspace.revision}-${attempt.id}`} submit="Attach execution reference" busy={busy} onSubmit={data => save({ type: 'attach_execution', attempt_id: attempt.id, execution_ref: {
       namespace: text(data, 'namespace'), harness: text(data, 'harness'), session_id: text(data, 'session'), machine: text(data, 'machine') || null, source_revision: text(data, 'revision'), continuation: text(data, 'continuation') || null,
       segment: text(data, 'start') || text(data, 'end') ? { start_offset: Number(text(data, 'start')), end_offset: Number(text(data, 'end')) } : null,
     } })}>
-      <Field name="namespace" label="Semon instance or source namespace" short/><Select name="harness" label="Harness" options={['codex', 'claude', 'copilot'].map(value => ({ value, label: value }))}/>
+      <Field name="namespace" label="Execution source namespace" short/><Select name="harness" label="Harness" options={['codex', 'claude', 'copilot'].map(value => ({ value, label: value }))}/>
       <Field name="session" label="Native session ID" short/><Field name="machine" label="Machine ID (if applicable)" short required={false}/>
-      <Field name="revision" label="Provenance or revision" short hint="For example, Semon revision and the operator’s source manifest reference."/><Field name="continuation" label="Native continuation reference" short required={false}/>
+      <Field name="revision" label="Provenance or revision" short hint="For example, the executor revision or operator’s source manifest reference."/><Field name="continuation" label="Native continuation reference" short required={false}/>
       <Field name="start" label="Segment start byte offset" short required={false}/><Field name="end" label="Segment end byte offset" short required={false}/>
     </Form>
     {attempt.execution_refs.length > 0 && <div className="technical"><JsonDetails title="Stored execution references" value={attempt.execution_refs}/></div>}

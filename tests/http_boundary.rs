@@ -159,24 +159,6 @@ async fn local_access_files_conflicts_and_recovery() {
         "Stale UI revisions cannot overwrite state"
     );
     assert_eq!(store.load_workspace("local").await.unwrap().revision, 1);
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/semon")
-                .header("Host", "127.0.0.1:4317")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let semon = body(response).await;
-    assert_eq!(semon["store_present"], false);
-    assert!(
-        semon["limitation"]
-            .as_str()
-            .unwrap()
-            .contains("does not verify")
-    );
     store.close().await;
     std::fs::remove_dir_all(directory).unwrap();
 }

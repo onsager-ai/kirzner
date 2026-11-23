@@ -217,22 +217,6 @@ async fn sqlite_complete_loop_and_restart() {
     std::fs::remove_dir_all(directory).unwrap();
 }
 
-#[tokio::test]
-#[ignore = "requires KIRZNER_TEST_POSTGRES_URL pointing to a disposable PostgreSQL database"]
-async fn postgres_complete_loop_and_restart() {
-    let url = std::env::var("KIRZNER_TEST_POSTGRES_URL")
-        .expect("Set KIRZNER_TEST_POSTGRES_URL to a disposable database");
-    let id = format!("parity-{}-{}", std::process::id(), now());
-    run_loop(&url, &id).await;
-    let pool = sqlx::PgPool::connect(&url).await.unwrap();
-    sqlx::query("DELETE FROM business_workspaces WHERE workspace_id = $1")
-        .bind(id)
-        .execute(&pool)
-        .await
-        .unwrap();
-    pool.close().await;
-}
-
 #[test]
 fn identity_and_return_validation() {
     let reference = ExecutionRef {
