@@ -47,13 +47,13 @@ impl Article {
             .unwrap_or_else(|| Path::new("."))
             .canonicalize()?;
         Self::parse(fs::read(path)?, |relative, _| {
-            let target = base
-                .join(relative)
-                .canonicalize()
-                .map_err(|source| PublishError::Image {
-                    path: relative.display().to_string(),
-                    source,
-                })?;
+            let target =
+                base.join(relative)
+                    .canonicalize()
+                    .map_err(|source| PublishError::Image {
+                        path: relative.display().to_string(),
+                        source,
+                    })?;
             if !target.starts_with(&base) || !target.is_file() {
                 return Err(invalid(format!(
                     "Image must be a file inside the article directory: {}",
@@ -258,7 +258,11 @@ fn tags(value: &str) -> Result<Vec<String>> {
 }
 
 fn local_path(destination: &str) -> Result<String> {
-    let rejected = || invalid(format!("Expected a relative local image path: {destination}"));
+    let rejected = || {
+        invalid(format!(
+            "Expected a relative local image path: {destination}"
+        ))
+    };
     if destination.contains(['?', '#']) {
         return Err(rejected());
     }
@@ -347,7 +351,9 @@ fn rewrite_images(
     for line in body.split_inclusive('\n') {
         let unindented = line.trim_start_matches(' ');
         let marker = unindented.as_bytes().first().copied();
-        if line.len() - unindented.len() <= 3 && let Some(marker @ (b'`' | b'~')) = marker {
+        if line.len() - unindented.len() <= 3
+            && let Some(marker @ (b'`' | b'~')) = marker
+        {
             let size = marker_run(unindented.as_bytes(), marker);
             if size >= 3 {
                 if fence.is_none() {

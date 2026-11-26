@@ -165,7 +165,9 @@ impl BundleExport<'_> {
                 return Err(error.into());
             }
         } else if !self.existing_matches()? {
-            return Err(invalid("Existing bundle disappeared while preparing the export"));
+            return Err(invalid(
+                "Existing bundle disappeared while preparing the export",
+            ));
         }
         Ok(std::mem::take(&mut self.destination))
     }

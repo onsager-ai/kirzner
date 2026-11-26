@@ -189,7 +189,9 @@ pub async fn record(
         return Err(invalid("Publication requires an absolute HTTPS URL"));
     }
     if !is_digest(package_digest) {
-        return Err(invalid("Package digest must be a lowercase SHA-256 hex string"));
+        return Err(invalid(
+            "Package digest must be a lowercase SHA-256 hex string",
+        ));
     }
     let mut workspace = store.load_workspace(LOCAL_WORKSPACE_ID).await?;
     let attempt_id = package_attempt(&workspace, experiment_id, version, package_digest)
@@ -270,7 +272,9 @@ fn read_article(data_dir: &Path, record: &ArticleRecord) -> Result<Article> {
         read_content(data_dir, &asset.sha256)
     })?;
     if article.metadata() != record {
-        return Err(invalid("Imported article content does not match its metadata"));
+        return Err(invalid(
+            "Imported article content does not match its metadata",
+        ));
     }
     Ok(article)
 }
@@ -287,7 +291,10 @@ fn read_content(data_dir: &Path, digest: &str) -> Result<Vec<u8>> {
 }
 
 fn is_digest(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 async fn commit(store: &BusinessStore, workspace: &mut Workspace) -> Result<()> {
@@ -299,9 +306,9 @@ async fn commit(store: &BusinessStore, workspace: &mut Workspace) -> Result<()> 
 
 fn https_url(url: &str) -> bool {
     if !url.starts_with("https://")
-        || !url.bytes().all(|b| {
-            b.is_ascii_alphanumeric() || b"-._~:/?#[]@!$&'()*+,;=%".contains(&b)
-        })
+        || !url
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-._~:/?#[]@!$&'()*+,;=%".contains(&b))
         || url.matches('#').count() > 1
         || url.split('%').skip(1).any(|rest| {
             !rest
@@ -333,16 +340,24 @@ fn https_url(url: &str) -> bool {
     {
         return false;
     }
-    if let Some(address) = host.strip_prefix('[').and_then(|host| host.strip_suffix(']')) {
+    if let Some(address) = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+    {
         return address.parse::<Ipv6Addr>().is_ok();
     }
-    host.strip_suffix('.').unwrap_or(host).split('.').all(|label| {
-        !label.is_empty()
-            && label.len() <= 63
-            && !label.starts_with('-')
-            && !label.ends_with('-')
-            && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-    })
+    host.strip_suffix('.')
+        .unwrap_or(host)
+        .split('.')
+        .all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
 }
 
 #[cfg(test)]

@@ -1,11 +1,11 @@
 //! SQLite business store for a small workspace aggregate. Immutable business
 //! revisions are inside it; this is not an event sourcing framework.
 use crate::model::Workspace;
+use sha2::{Digest, Sha256};
 use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
-use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{self, Write},

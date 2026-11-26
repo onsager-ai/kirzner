@@ -223,7 +223,10 @@ impl Fixture {
         let expected = workspace.revision;
         assert!(marketing::apply(&mut workspace, command).unwrap().changed);
         workspace.revision += 1;
-        self.store.commit_workspace(expected, &workspace).await.unwrap();
+        self.store
+            .commit_workspace(expected, &workspace)
+            .await
+            .unwrap();
     }
 
     async fn decide(&self, version: u32, approved: bool) {
@@ -311,11 +314,21 @@ async fn cli_packages_only_approved_current_versions_and_records_matching_urls()
     let image = fixture.dir.0.join("feature.png");
     fs::write(&image, b"synthetic asset").unwrap();
     let out = fixture.dir.0.join("out");
-    assert!(!fixture.package("1", source.as_os_str(), &out).status.success());
+    assert!(
+        !fixture
+            .package("1", source.as_os_str(), &out)
+            .status
+            .success()
+    );
     assert!(!out.exists());
     fixture.decide(1, true).await;
     fixture.decide(1, false).await;
-    assert!(!fixture.package("1", source.as_os_str(), &out).status.success());
+    assert!(
+        !fixture
+            .package("1", source.as_os_str(), &out)
+            .status
+            .success()
+    );
     fixture.decide(1, true).await;
     fixture
         .apply(Command::ReviseProposal {
@@ -323,7 +336,12 @@ async fn cli_packages_only_approved_current_versions_and_records_matching_urls()
             proposal: proposal("Draft two"),
         })
         .await;
-    assert!(!fixture.package("1", source.as_os_str(), &out).status.success());
+    assert!(
+        !fixture
+            .package("1", source.as_os_str(), &out)
+            .status
+            .success()
+    );
     assert!(!out.exists());
     fixture.decide(2, true).await;
     let imported = stdout(fixture.cli(&[
@@ -345,7 +363,10 @@ async fn cli_packages_only_approved_current_versions_and_records_matching_urls()
     assert_eq!(attempt.kind, "publish_package");
     assert_eq!(attempt.id, attempt_id);
     assert_eq!(attempt.proposal_version, Some(2));
-    assert_eq!(attempt.snapshot["proposal"]["content"]["action"], "Draft two");
+    assert_eq!(
+        attempt.snapshot["proposal"]["content"]["action"],
+        "Draft two"
+    );
     assert_eq!(attempt.publish_package.as_ref().unwrap().digest, digest);
     assert!(attempt.returns.is_empty());
     let stored = fs::read(fixture.dir.0.join("files").join(digest)).unwrap();
@@ -354,7 +375,10 @@ async fn cli_packages_only_approved_current_versions_and_records_matching_urls()
     fs::remove_file(image).unwrap();
     let retry = stdout(fixture.package("2", OsStr::new(article_id), &out));
     assert_eq!(retry, packaged);
-    assert_eq!(fixture.store.load_workspace("local").await.unwrap(), workspace);
+    assert_eq!(
+        fixture.store.load_workspace("local").await.unwrap(),
+        workspace
+    );
     for url in [
         "http://example.com/article",
         "https:///article",
@@ -372,7 +396,10 @@ async fn cli_packages_only_approved_current_versions_and_records_matching_urls()
     let url = "https://example.com:443/article?x=1#body";
     assert!(!fixture.record("1", digest, url).status.success());
     assert!(!fixture.record("2", &"0".repeat(64), url).status.success());
-    assert_eq!(fixture.store.load_workspace("local").await.unwrap(), workspace);
+    assert_eq!(
+        fixture.store.load_workspace("local").await.unwrap(),
+        workspace
+    );
     let recorded = stdout(fixture.record("2", digest, url));
     assert_eq!(recorded, format!("action-1 {url}\n"));
     assert_eq!(stdout(fixture.record("2", digest, url)), recorded);
