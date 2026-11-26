@@ -1,6 +1,7 @@
 //! Local publication handoffs. Adapters transform content for a founder to publish.
 mod article;
 mod bundle;
+mod platforms;
 
 pub use article::{Article, ArticleRecord, Asset};
 pub use bundle::Bundle;
@@ -44,8 +45,17 @@ pub trait PublisherAdapter {
     fn id(&self) -> &str;
     fn creator_url(&self) -> Option<&str>;
     fn normalize(&self, article: &Article) -> Result<PlatformArticle>;
+
+    fn tags_are_topic_suggestions(&self) -> bool {
+        false
+    }
+
+    fn checklist_steps(&self) -> &[&str] {
+        &[]
+    }
 }
 
+#[derive(Debug)]
 pub struct PlatformArticle {
     pub title: String,
     pub summary: Option<String>,
@@ -116,10 +126,7 @@ pub async fn package(
     data_dir: &Path,
     request: PackageRequest<'_>,
 ) -> Result<Packaged> {
-    let adapter = GenericAdapter;
-    if request.platform != adapter.id() {
-        return Err(invalid("Unknown publication platform (expected generic)"));
-    }
+    let adapter = platforms::lookup(request.platform)?;
     let mut workspace = store.load_workspace(LOCAL_WORKSPACE_ID).await?;
     let experiment =
         marketing::authorized_preparation(&workspace, request.experiment_id, request.version)?;
@@ -131,7 +138,7 @@ pub async fn package(
         Some(record) => read_article(data_dir, record)?,
         None => Article::read(Path::new(request.article))?,
     };
-    let bundle = Bundle::build(&article, &adapter)?;
+    let bundle = Bundle::build(&article, adapter)?;
     // Stage the export before CAS, then make it visible only after approval and
     // the matching attempt are durable. Repeating the command reuses that attempt.
     let export = bundle.stage(request.out)?;

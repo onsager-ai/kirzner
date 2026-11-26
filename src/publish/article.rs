@@ -347,50 +347,130 @@ fn rewrite_images(
     asset_path: &mut impl FnMut(&str) -> Result<String>,
 ) -> Result<String> {
     let mut rewritten = String::with_capacity(body.len());
-    let mut fence = None;
+    let mut fence: Option<Fence> = None;
+    let mut start = 0;
+    let mut offset = 0;
     for line in body.split_inclusive('\n') {
-        let unindented = line.trim_start_matches(' ');
-        let marker = unindented.as_bytes().first().copied();
-        if line.len() - unindented.len() <= 3
-            && let Some(marker @ (b'`' | b'~')) = marker
+        let max_depth = fence.as_ref().map_or(usize::MAX, |open| open.quote_depth);
+        let (quote_depth, content) = quote_content(line, max_depth);
+        let blank = content.trim_matches([' ', '\t', '\n']).is_empty();
+        let protected = if let Some(open) = &fence
+            && open.quote_depth == quote_depth
+            && (blank || space_indent(content) >= open.list_indent)
         {
-            let size = marker_run(unindented.as_bytes(), marker);
-            if size >= 3 {
-                if fence.is_none() {
-                    fence = Some((marker, size));
-                    rewritten.push_str(line);
-                    continue;
-                }
-                if let Some((active, minimum)) = fence
-                    && marker == active
-                    && size >= minimum
-                    && unindented[size..].trim().is_empty()
-                {
-                    fence = None;
-                    rewritten.push_str(line);
-                    continue;
-                }
+            if !blank
+                && let Some((closing, size, rest)) = fence_marker(&content[open.list_indent..])
+                && closing == open.marker
+                && size >= open.size
+                && rest.trim_matches([' ', '\t', '\n']).is_empty()
+            {
+                fence = None;
             }
-        }
-        if fence.is_some() || line.starts_with("    ") || line.starts_with('\t') {
-            rewritten.push_str(line);
+            true
         } else {
-            rewrite_line(line, &mut rewritten, asset_path)?;
+            let (quote_depth, content) = quote_content(line, usize::MAX);
+            fence = opening_fence(content, quote_depth);
+            fence.is_some()
+                || space_indent(content) >= 4
+                || content.starts_with('\t')
+                || content.trim_matches([' ', '\t', '\n']).is_empty()
+        };
+        if protected {
+            // Scan prose in runs so a code span can cross a soft line break.
+            rewrite_text(&body[start..offset], &mut rewritten, asset_path)?;
+            rewritten.push_str(line);
+            start = offset + line.len();
         }
+        offset += line.len();
     }
+    rewrite_text(&body[start..], &mut rewritten, asset_path)?;
     Ok(rewritten)
+}
+
+fn quote_content(mut line: &str, max_depth: usize) -> (usize, &str) {
+    let mut depth = 0;
+    while depth < max_depth {
+        let unindented = line.trim_start_matches(' ');
+        if line.len() - unindented.len() > 3 {
+            break;
+        }
+        let Some(rest) = unindented.strip_prefix('>') else {
+            break;
+        };
+        depth += 1;
+        line = rest.strip_prefix([' ', '\t']).unwrap_or(rest);
+    }
+    (depth, line)
+}
+
+struct Fence {
+    quote_depth: usize,
+    list_indent: usize,
+    marker: u8,
+    size: usize,
+}
+
+fn opening_fence(line: &str, quote_depth: usize) -> Option<Fence> {
+    let list_indent = list_item_indent(line).unwrap_or_default();
+    let (marker, size, info) = fence_marker(&line[list_indent..])?;
+    if marker == b'`' && info.contains('`') {
+        return None;
+    }
+    Some(Fence {
+        quote_depth,
+        list_indent,
+        marker,
+        size,
+    })
+}
+
+fn list_item_indent(line: &str) -> Option<usize> {
+    let indent = space_indent(line);
+    if indent > 3 {
+        return None;
+    }
+    let rest = &line[indent..];
+    let marker_len = if rest.starts_with(['-', '+', '*']) {
+        1
+    } else {
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        if !(1..=9).contains(&digits) || !rest[digits..].starts_with(['.', ')']) {
+            return None;
+        }
+        digits + 1
+    };
+    let padding = space_indent(&rest[marker_len..]);
+    (1..=4)
+        .contains(&padding)
+        .then_some(indent + marker_len + padding)
+}
+
+fn space_indent(line: &str) -> usize {
+    marker_run(line.as_bytes(), b' ')
+}
+
+fn fence_marker(line: &str) -> Option<(u8, usize, &str)> {
+    let unindented = line.trim_start_matches(' ');
+    if line.len() - unindented.len() > 3 {
+        return None;
+    }
+    let marker @ (b'`' | b'~') = *unindented.as_bytes().first()? else {
+        return None;
+    };
+    let size = marker_run(unindented.as_bytes(), marker);
+    (size >= 3).then_some((marker, size, &unindented[size..]))
 }
 
 fn marker_run(bytes: &[u8], marker: u8) -> usize {
     bytes.iter().take_while(|&&byte| byte == marker).count()
 }
 
-fn rewrite_line(
-    line: &str,
+fn rewrite_text(
+    text: &str,
     rewritten: &mut String,
     asset_path: &mut impl FnMut(&str) -> Result<String>,
 ) -> Result<()> {
-    let bytes = line.as_bytes();
+    let bytes = text.as_bytes();
     let mut index = 0;
     let mut copied = 0;
     while index < bytes.len() {
@@ -400,7 +480,7 @@ fn rewrite_line(
                 let size = marker_run(&bytes[index..], b'`');
                 index += size;
                 let mut rest = index;
-                while let Some(offset) = line[rest..].find('`') {
+                while let Some(offset) = text[rest..].find('`') {
                     let start = rest + offset;
                     let closing = marker_run(&bytes[start..], b'`');
                     rest = start + closing;
@@ -411,11 +491,13 @@ fn rewrite_line(
                 }
             }
             b'!' if bytes.get(index + 1) == Some(&b'[') => {
-                if let Some(open) = image_open(&bytes[index + 2..]) {
+                let rest = &text[index + 2..];
+                let line = rest.split_once('\n').map_or(rest, |(line, _)| line);
+                if let Some(open) = image_open(line.as_bytes()) {
                     let start = index + 2 + open;
-                    let (from, to, next) = image_destination(&line[start..])?;
-                    rewritten.push_str(&line[copied..start + from]);
-                    rewritten.push_str(&asset_path(&line[start + from..start + to])?);
+                    let (from, to, next) = image_destination(&line[open..])?;
+                    rewritten.push_str(&text[copied..start + from]);
+                    rewritten.push_str(&asset_path(&text[start + from..start + to])?);
                     copied = start + to;
                     index = start + next;
                 } else {
@@ -425,7 +507,7 @@ fn rewrite_line(
             _ => index += 1,
         }
     }
-    rewritten.push_str(&line[copied..]);
+    rewritten.push_str(&text[copied..]);
     Ok(())
 }
 
