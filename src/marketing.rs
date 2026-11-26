@@ -123,6 +123,25 @@ pub fn authorized(experiment: &Experiment, version: u32) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn authorized_preparation<'a>(
+    workspace: &'a Workspace,
+    experiment_id: &str,
+    version: u32,
+) -> Result<&'a Experiment> {
+    let experiment = workspace
+        .experiments
+        .iter()
+        .find(|e| e.id == experiment_id)
+        .ok_or_else(|| BusinessError::NotFound("Experiment not found".into()))?;
+    authorized(experiment, version)?;
+    if experiment_has_unresolved_effects(workspace, experiment_id) {
+        return Err(BusinessError::Conflict(
+            "Reconcile unknown external effects before preparing another attempt".into(),
+        ));
+    }
+    Ok(experiment)
+}
+
 fn unresolved_effects(attempt: &Attempt) -> bool {
     attempt.returns.iter().any(|r| {
         r.input.external_effects == "unknown"
@@ -535,17 +554,7 @@ pub fn apply(workspace: &mut Workspace, command: Command) -> Result<Applied> {
             version,
             context,
         } => {
-            let experiment = workspace
-                .experiments
-                .iter()
-                .find(|e| e.id == experiment_id)
-                .ok_or_else(|| BusinessError::NotFound("Experiment not found".into()))?;
-            authorized(experiment, version)?;
-            if experiment_has_unresolved_effects(workspace, &experiment_id) {
-                return Err(BusinessError::Conflict(
-                    "Reconcile unknown external effects before preparing another attempt".into(),
-                ));
-            }
+            let experiment = authorized_preparation(workspace, &experiment_id, version)?;
             let attempt = handoffs::preparation(workspace, experiment, context);
             workspace.attempts.push(attempt);
         }
@@ -691,6 +700,7 @@ pub fn apply(workspace: &mut Workspace, command: Command) -> Result<Applied> {
                 self_prepared,
                 historical: false,
                 completed_at: None,
+                publish_attempt_id: None,
                 recorded_at: now(),
             });
         }
@@ -750,6 +760,7 @@ pub fn apply(workspace: &mut Workspace, command: Command) -> Result<Applied> {
                 self_prepared,
                 historical: true,
                 completed_at: Some(completed_at),
+                publish_attempt_id: None,
                 recorded_at: now(),
             });
         }

@@ -5,7 +5,16 @@ use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
-use std::{str::FromStr, time::Duration};
+use sha2::{Digest, Sha256};
+use std::{
+    fs,
+    io::{self, Write},
+    path::Path,
+    str::FromStr,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+pub(crate) const LOCAL_WORKSPACE_ID: &str = "local";
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -75,4 +84,32 @@ impl BusinessStore {
     pub fn backend(&self) -> &'static str {
         "sqlite"
     }
+}
+
+pub(crate) fn sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+pub(crate) fn put_content(data_dir: &Path, bytes: &[u8]) -> io::Result<String> {
+    let digest = sha256(bytes);
+    let directory = data_dir.join("files");
+    fs::create_dir_all(&directory)?;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temporary = directory.join(format!(".upload-{}-{nonce}", std::process::id()));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    // An interrupted write cannot truncate already referenced content.
+    let persist = file
+        .write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .and_then(|()| fs::rename(&temporary, directory.join(&digest)));
+    if persist.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    persist.map(|()| digest)
 }
