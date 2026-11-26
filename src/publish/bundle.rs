@@ -16,6 +16,8 @@ struct Manifest<'a> {
     title: &'a str,
     summary: Option<&'a str>,
     tags: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    topic_suggestions: Option<&'a [String]>,
     category: Option<&'a str>,
     cover: Option<&'a str>,
     source_sha256: &'a str,
@@ -42,6 +44,9 @@ impl<'a> Bundle<'a> {
             return Err(invalid("Invalid platform ID"));
         }
         let normalized = adapter.normalize(article)?;
+        let topic_suggestions = adapter
+            .tags_are_topic_suggestions()
+            .then_some(normalized.tags.as_slice());
         let record = article.metadata();
         let manifest = Manifest {
             schema_version: 1,
@@ -49,14 +54,19 @@ impl<'a> Bundle<'a> {
             platform,
             title: &normalized.title,
             summary: normalized.summary.as_deref(),
-            tags: &normalized.tags,
+            tags: if topic_suggestions.is_some() {
+                &[]
+            } else {
+                &normalized.tags
+            },
+            topic_suggestions,
             category: normalized.category.as_deref(),
             cover: record.cover.as_deref(),
             source_sha256: &record.source_sha256,
             normalized_body_sha256: sha256(normalized.markdown.as_bytes()),
             assets: &record.assets,
         };
-        let checklist = checklist(&manifest, adapter.creator_url());
+        let checklist = checklist(&manifest, adapter);
         let mut manifest_json = serde_json::to_vec_pretty(&manifest)?;
         manifest_json.push(b'\n');
         let mut files = BTreeMap::from([
@@ -181,23 +191,34 @@ impl Drop for BundleExport<'_> {
     }
 }
 
-fn checklist(manifest: &Manifest<'_>, creator_url: Option<&str>) -> String {
-    let creator = creator_url.unwrap_or("Open your chosen platform’s creator editor");
+fn checklist(manifest: &Manifest<'_>, adapter: &dyn PublisherAdapter) -> String {
+    let creator = adapter
+        .creator_url()
+        .unwrap_or("Open your chosen platform’s creator editor");
     let title = manifest.title;
     let summary = manifest.summary.unwrap_or("None");
-    let tags = if manifest.tags.is_empty() {
+    let (label, tags) = match manifest.topic_suggestions {
+        Some(topics) => ("Topic suggestions", topics),
+        None => ("Tags", manifest.tags),
+    };
+    let tags = if tags.is_empty() {
         "None".into()
     } else {
-        manifest.tags.join(", ")
+        tags.join(", ")
     };
-    let category = manifest.category.unwrap_or("None");
     let cover = manifest.cover.unwrap_or("None");
     let mut markdown = format!(
         "# Publication checklist\n\nCreator editor: {creator}\n\n\
-         - Title: {title}\n- Summary: {summary}\n- Tags: {tags}\n\
-         - Category: {category}\n- Cover: {cover}\n\n\
-         Paste `article.md` into the editor and upload the images in this order:\n"
+         - Title: {title}\n- Summary: {summary}\n- {label}: {tags}\n"
     );
+    if manifest.topic_suggestions.is_none() {
+        let category = manifest.category.unwrap_or("None");
+        markdown.push_str(&format!("- Category: {category}\n"));
+    }
+    markdown.push_str(&format!(
+        "- Cover: {cover}\n\n\
+         Paste `article.md` into the editor and upload the images in this order:\n"
+    ));
     for asset in manifest.assets {
         markdown.push_str("- [ ] `");
         markdown.push_str(&asset.path);
@@ -206,6 +227,17 @@ fn checklist(manifest: &Manifest<'_>, creator_url: Option<&str>) -> String {
     if manifest.assets.is_empty() {
         markdown.push_str("\nNo images to upload.\n");
     }
-    markdown.push_str("\n- [ ] Paste the live public URL: \n");
+    let steps = adapter.checklist_steps();
+    if !steps.is_empty() {
+        markdown.push('\n');
+        for step in steps {
+            markdown.push_str("- [ ] ");
+            markdown.push_str(step);
+            markdown.push('\n');
+        }
+        markdown.push_str("- [ ] Paste the live public URL into `kirzner publish record`.\n");
+    } else {
+        markdown.push_str("\n- [ ] Paste the live public URL: \n");
+    }
     markdown
 }

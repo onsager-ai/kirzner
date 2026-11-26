@@ -248,6 +248,10 @@ impl Fixture {
     }
 
     fn package(&self, version: &str, article: &OsStr, out: &Path) -> Output {
+        self.package_for("generic", version, article, out)
+    }
+
+    fn package_for(&self, platform: &str, version: &str, article: &OsStr, out: &Path) -> Output {
         self.cli(&[
             OsStr::new("publish"),
             OsStr::new("package"),
@@ -258,7 +262,7 @@ impl Fixture {
             OsStr::new("--article"),
             article,
             OsStr::new("--platform"),
-            OsStr::new("generic"),
+            OsStr::new(platform),
             OsStr::new("--out"),
             out.as_os_str(),
         ])
@@ -417,4 +421,137 @@ async fn cli_packages_only_approved_current_versions_and_records_matching_urls()
     assert_eq!(action.publish_attempt_id.as_deref(), Some(attempt_id));
     assert!(action.note.contains(digest));
     assert!(workspace.experiments[0].observations.is_empty());
+}
+
+#[tokio::test]
+async fn platform_packages_preserve_markdown_and_support_manual_publication() {
+    const CODE: &str = concat!(
+        "  ````rust\n",
+        "    let image = \"![not-an-image](fake.png)\";  \n",
+        "```\n",
+        "> ![still-code](fake.png)\n",
+        "  ````\n\n",
+        "> ~~~ts\n",
+        ">   const image = '![not-an-image](fake.png)';\n",
+        "> ~~~\n\n",
+        "- ```js\n",
+        "  const image = '![listed](fake.png)';\n",
+        "  ```\n\n",
+        "Keep `` `![inline](fake.png)`\n![continued](fake.png) `` verbatim.  \n\n",
+    );
+    for (platform, creator) in [
+        ("juejin", "https://juejin.cn/editor/drafts/new"),
+        ("zhihu", "https://zhuanlan.zhihu.com/write"),
+        ("csdn", "https://editor.csdn.net/md/"),
+    ] {
+        let fixture = Fixture::new().await;
+        let markdown = format!(
+            "---\ntitle: 发布示例\nsummary: Synthetic summary\ntags: [Rust, 图文]\n\
+             category: Engineering\ncover: cover.jpg\n---\n\n{CODE}\
+             ![First](z.png)\n![Second](a.png) \t\n\n"
+        );
+        let source = source(&fixture.dir.0, &markdown.replace('\n', "\r\n"));
+        for (path, bytes) in [
+            ("cover.jpg", b"cover"),
+            ("z.png", b"first"),
+            ("a.png", b"other"),
+        ] {
+            fs::write(fixture.dir.0.join(path), bytes).unwrap();
+        }
+        let article = Article::read(&source).unwrap();
+        let out = fixture.dir.0.join("out");
+        let package = |out: &Path| fixture.package_for(platform, "1", source.as_os_str(), out);
+        assert!(!package(&out).status.success());
+        assert!(!out.exists());
+        fixture.decide(1, true).await;
+        let packaged = stdout(package(&out));
+        let mut fields = packaged.split_whitespace();
+        let attempt_id = fields.next().unwrap();
+        let digest = fields.next().unwrap();
+        let relative = Path::new(&article.metadata().id).join(platform);
+        let bundle = out.join(&relative);
+        let second = fixture.dir.0.join("second");
+        let repeated = stdout(package(&second));
+        assert!(repeated.starts_with(&format!("{attempt_id} {digest} ")));
+        for path in [
+            "manifest.json",
+            "article.md",
+            "checklist.md",
+            "assets/001-cover.jpg",
+            "assets/002-z.png",
+            "assets/003-a.png",
+        ] {
+            assert_eq!(
+                fs::read(bundle.join(path)).unwrap(),
+                fs::read(second.join(&relative).join(path)).unwrap()
+            );
+        }
+        let body = fs::read_to_string(bundle.join("article.md")).unwrap();
+        assert_eq!(
+            body,
+            format!("\n{CODE}![First](assets/002-z.png)\n![Second](assets/003-a.png)")
+        );
+        let manifest: Value =
+            serde_json::from_slice(&fs::read(bundle.join("manifest.json")).unwrap()).unwrap();
+        assert_eq!(manifest["platform"], platform);
+        assert_eq!(manifest["title"], "发布示例");
+        assert_eq!(manifest["summary"], "Synthetic summary");
+        assert_eq!(manifest["cover"], "assets/001-cover.jpg");
+        let tags = serde_json::json!(["Rust", "图文"]);
+        if platform == "zhihu" {
+            assert_eq!(manifest["topic_suggestions"], tags);
+            assert_eq!(manifest["tags"], serde_json::json!([]));
+            assert!(manifest["category"].is_null());
+        } else {
+            assert!(manifest.get("topic_suggestions").is_none());
+            assert_eq!(manifest["tags"], tags);
+            assert_eq!(manifest["category"], "Engineering");
+        }
+        let checklist = fs::read_to_string(bundle.join("checklist.md")).unwrap();
+        assert!(checklist.contains(creator));
+        let step = match platform {
+            "juejin" => "Select the declared cover",
+            "zhihu" => "Choose and attach matching topics manually",
+            _ => "Use the CSDN Markdown editor",
+        };
+        assert!(checklist.contains(step));
+        assert!(checklist.contains("upload the images in this order"));
+        assert!(checklist.contains("`kirzner publish record`"));
+        for (index, path, bytes) in [
+            (0, "assets/001-cover.jpg", b"cover"),
+            (1, "assets/002-z.png", b"first"),
+            (2, "assets/003-a.png", b"other"),
+        ] {
+            assert_eq!(manifest["assets"][index]["path"], path);
+            assert_eq!(manifest["assets"][index]["order"], index + 1);
+            assert_eq!(fs::read(bundle.join(path)).unwrap(), bytes);
+        }
+        let workspace = fixture.store.load_workspace("local").await.unwrap();
+        assert_eq!(workspace.attempts.len(), 1);
+        assert!(workspace.experiments[0].actions.is_empty());
+        let reference = workspace.attempts[0].publish_package.as_ref().unwrap();
+        assert_eq!(reference.platform, platform);
+        assert_eq!(reference.digest, digest);
+        let canonical = fs::read(fixture.dir.0.join("files").join(digest)).unwrap();
+        assert_eq!(format!("{:x}", Sha256::digest(canonical)), digest);
+        let url = format!("https://example.com/{platform}");
+        let recorded = stdout(fixture.record("1", digest, &url));
+        assert_eq!(recorded, format!("action-1 {url}\n"));
+        let workspace = fixture.store.load_workspace("local").await.unwrap();
+        let action = &workspace.experiments[0].actions[0];
+        assert_eq!(action.reference, url);
+        assert_eq!(action.publish_attempt_id.as_deref(), Some(attempt_id));
+    }
+}
+
+#[tokio::test]
+async fn cli_lists_supported_platforms_for_an_unknown_target() {
+    let fixture = Fixture::new().await;
+    let out = fixture.dir.0.join("out");
+    let output = fixture.package_for("unknown", "1", OsStr::new("missing.md"), &out);
+    assert!(!output.status.success());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("Unknown publication platform"));
+    assert!(error.contains("Supported platforms: generic, juejin, zhihu, csdn"));
+    assert!(!out.exists());
 }
