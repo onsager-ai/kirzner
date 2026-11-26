@@ -91,7 +91,10 @@ mod tests {
         }
         let zhihu = lookup("zhihu").unwrap();
         assert_eq!(zhihu.id(), "zhihu");
-        assert_eq!(zhihu.creator_url(), Some("https://zhuanlan.zhihu.com/write"));
+        assert_eq!(
+            zhihu.creator_url(),
+            Some("https://zhuanlan.zhihu.com/write")
+        );
         assert!(zhihu.tags_are_topic_suggestions());
         let valid = article("Title", 11);
         assert_eq!(zhihu.normalize(&valid).unwrap().tags, valid.record.tags);
