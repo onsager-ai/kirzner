@@ -94,6 +94,7 @@ fn make(
         returns: vec![],
         reviews: vec![],
         reconciliations: vec![],
+        publish_package: None,
         created_at: now(),
     }
 }

@@ -14,8 +14,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use sha2::{Digest, Sha256};
-use std::{io::Write, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -28,7 +27,7 @@ impl AppState {
     pub fn new(store: BusinessStore, data_dir: PathBuf) -> Self {
         Self {
             store,
-            workspace_id: "local".into(),
+            workspace_id: crate::storage::LOCAL_WORKSPACE_ID.into(),
             data_dir,
             frontend_dir: "frontend/dist".into(),
         }
@@ -251,37 +250,12 @@ async fn upload(
             "Choose a named, nonempty file (up to 5 MB)".into(),
         ));
     }
-    let digest = format!("{:x}", Sha256::digest(&bytes));
-    let directory = state.data_dir.join("files");
-    std::fs::create_dir_all(&directory).map_err(|_| {
+    let digest = crate::storage::put_content(&state.data_dir, &bytes).map_err(|_| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Could not create file directory".into(),
+            "Could not persist file".into(),
         )
     })?;
-    // An interrupted upload cannot truncate an already referenced content file.
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let temporary = directory.join(format!(".upload-{}-{nonce}", std::process::id()));
-    let persist = || -> std::io::Result<()> {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&temporary, directory.join(&digest))?;
-        Ok(())
-    };
-    if persist().is_err() {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(ApiError(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Could not persist file".into(),
-        ));
-    }
     let media_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|h| h.to_str().ok())
@@ -303,7 +277,7 @@ async fn download(
             "File not found; restore referenced files from your backup".into(),
         )
     })?;
-    if format!("{:x}", Sha256::digest(&bytes)) != id {
+    if crate::storage::sha256(&bytes) != id {
         return Err(ApiError(
             StatusCode::SERVICE_UNAVAILABLE,
             "File content does not match its reference; restore it from backup".into(),

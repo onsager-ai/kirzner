@@ -1,3 +1,4 @@
+use crate::publish::{ArticleRecord, PackageReference};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -145,6 +146,8 @@ pub struct Action {
     pub historical: bool,
     #[serde(default)]
     pub completed_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish_attempt_id: Option<String>,
     pub recorded_at: u64,
 }
 
@@ -188,6 +191,8 @@ pub struct Attempt {
     pub returns: Vec<Receipt>,
     pub reviews: Vec<Review>,
     pub reconciliations: Vec<Reconciliation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish_package: Option<PackageReference>,
     pub created_at: u64,
 }
 
@@ -287,6 +292,8 @@ pub struct Workspace {
     pub attempts: Vec<Attempt>,
     pub return_conflicts: Vec<ReturnConflict>,
     pub adopted_learning: Vec<AdoptedLearning>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub articles: Vec<ArticleRecord>,
 }
 
 impl Workspace {
@@ -301,6 +308,7 @@ impl Workspace {
             attempts: vec![],
             return_conflicts: vec![],
             adopted_learning: vec![],
+            articles: vec![],
         }
     }
 }
