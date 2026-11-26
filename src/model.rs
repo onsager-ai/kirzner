@@ -197,11 +197,14 @@ pub struct ExecutionRef {
     pub namespace: String,
     pub harness: String,
     pub session_id: String,
+    #[serde(default)]
     pub machine: Option<String>,
     pub source_revision: String,
-    // Semon transcript paging uses native byte offsets. This is deliberately
-    // distinct from the trace store's occurrence sequence and semantic trace ID.
+    // Optional source offsets and continuation references are kept for older
+    // workspace documents and executor supplied metadata.
+    #[serde(default)]
     pub segment: Option<Segment>,
+    #[serde(default)]
     pub continuation: Option<String>,
 }
 

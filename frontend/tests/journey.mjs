@@ -199,7 +199,7 @@ try {
   await starter.getByRole('heading', { level: 2, name: 'Your first business brief', exact: true }).waitFor()
   await captureStage('minimal-start', [1280], ['light'])
   const starterValues = {
-    Product: 'Semon: local session capture and ordinary occurrence-log reads for coding agents',
+    Product: 'Kirzner: a local-first workspace for business experiments',
     'Current business objective': 'Prepare a source-backed validation plan for whether founders using multiple external agent sessions need a simpler way to resume experiments.',
     'Resource constraints': 'Preparation only; zero spend; no prospect contact, publication, deployment, purchase, or private-log inspection. Other business details remain unknown.',
   }
@@ -225,9 +225,9 @@ try {
   metrics.measured_primary_journey.clipboard_task_copies += 1
 
   const source = {
-    url: 'https://github.com/onsager-ai/semon/blob/defe9d791a197902c5bebcba2e2b7fe87dd9a075/README.md',
-    title: 'Semon interfaces at the inspected revision',
-    evidence: 'The pinned README documents incremental local capture and ordinary occurrence-log reads. This supports technical context only; local availability and customer demand are unverified. Verified README blob: e3b46edb940efd51ca4e9f3ca6da958daee68892.',
+    url: 'https://github.com/onsager-ai/kirzner/blob/ca631e382865d9e85dc192f4838dfd729f4f22c2/README.md',
+    title: 'Kirzner product boundaries at the inspected revision',
+    evidence: 'The pinned README describes Kirzner as a local-first business workspace that records experiments and founder decisions. This supports product context only; customer demand is unverified.',
   }
   const experimentDraft = {
     audience: 'Hypothesis: solo founders already using multiple external agent sessions; actual reachable participants are unknown.',
@@ -248,8 +248,8 @@ try {
     opportunities: [{
       title: 'SYNTHETIC hypothesis: founders may need a simpler way to resume experiments across agent sessions',
       customer_relevance: 'Proposed audience: solo founders who already use multiple external coding or research agents. Reachable participants, coordination pain, and current workarounds remain unknown.',
-      why_now: 'The pinned Semon documentation gives technical context for a source-backed interview pack. It does not establish timing, urgency, or demand.',
-      counterevidence: 'Native agent history, existing notes, or Semon’s viewer may already be sufficient. Repository documentation does not demonstrate a business need or demand.',
+      why_now: 'The pinned Kirzner README gives product context for a source-backed interview pack. It does not establish timing, urgency, or demand.',
+      counterevidence: 'Existing workspaces or founder notes may already be sufficient. Repository documentation does not demonstrate a business need or demand.',
       unknowns: 'Participant access, frequency and cost of coordination interruptions, existing alternatives, urgency, willingness to use or pay, and permission to inspect private logs remain unknown.',
       validation_action: 'Prepare and review a small interview pack. Any conversations or use of private session data require a separate founder action outside Kirzner.',
       sources: [source],
@@ -330,7 +330,7 @@ try {
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), preparationBrief)
   metrics.measured_primary_journey.clipboard_task_copies += 1
 
-  const materialText = '# SYNTHETIC inert text deliverable\n\nPinned Semon source context for preview only. This local fixture is not customer feedback or external-agent output.\n'
+  const materialText = '# SYNTHETIC inert text deliverable\n\nPinned Kirzner product context for preview only. This local fixture is not customer feedback or external-agent output.\n'
   const uploadResponse = page.waitForResponse(r => new URL(r.url()).pathname === '/api/files' && r.request().method() === 'POST')
   await preparationTask.getByLabel('Upload a deliverable file', { exact: true }).setInputFiles({ name: 'synthetic-source-note.md', mimeType: 'text/markdown', buffer: Buffer.from(materialText) })
   const uploadResult = await uploadResponse
