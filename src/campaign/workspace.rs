@@ -80,6 +80,28 @@ pub struct CampaignStore {
 }
 
 impl CampaignStore {
+    pub(super) fn open(root: &Path, name: &str) -> Result<Self, String> {
+        let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
+        campaign_name(name)?;
+        let lock = WorkspaceLock::acquire(root.join(".kirzner.lock"))?;
+        let campaign = read_campaign_file(&root.join(name))?;
+        Ok(Self {
+            root,
+            name: name.into(),
+            campaign,
+            _lock: lock,
+        })
+    }
+
+    pub(super) fn assert_unchanged(&self) -> Result<(), String> {
+        let path = self.root.join(&self.name);
+        file_metadata(&path)?;
+        if fs::read(&path).map_err(|e| e.to_string())? != self.campaign.text.as_bytes() {
+            return Err("Campaign changed during execution".into());
+        }
+        Ok(())
+    }
+
     pub fn campaign(&self) -> &Campaign {
         &self.campaign
     }
@@ -132,10 +154,7 @@ impl CampaignStore {
         drop(file);
 
         let directory = fs::File::open(&self.root).map_err(|e| e.to_string())?;
-        file_metadata(&path)?;
-        if fs::read(&path).map_err(|e| e.to_string())? != self.campaign.text.as_bytes() {
-            return Err("Campaign changed during execution".into());
-        }
+        self.assert_unchanged()?;
         fs::rename(&temp.0, &path).map_err(|e| e.to_string())?;
         let synced = directory.sync_all().map_err(|e| e.to_string());
         self.campaign = parsed_next;
@@ -148,16 +167,7 @@ pub fn with_campaign<T>(
     name: &str,
     op: impl FnOnce(&mut CampaignStore) -> Result<T, String>,
 ) -> Result<T, String> {
-    let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
-    campaign_name(name)?;
-    let lock = WorkspaceLock::acquire(root.join(".kirzner.lock"))?;
-    let campaign = read_campaign_file(&root.join(name))?;
-    op(&mut CampaignStore {
-        root,
-        name: name.into(),
-        campaign,
-        _lock: lock,
-    })
+    op(&mut CampaignStore::open(root, name)?)
 }
 
 pub fn campaign_plan(root: &Path, name: &str) -> Result<serde_json::Value, String> {

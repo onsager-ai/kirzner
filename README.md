@@ -7,8 +7,8 @@ and record actual actions, outcomes, and adopted learning.
 
 Kirzner owns business records and founder decisions. External agents own their
 model loops, tools, credentials, execution permissions, retries, and scheduling.
-Kirzner does not run agents, publish, contact prospects, or automatically retry
-external writes. Research can stand alone; founders can self-prepare.
+Kirzner does not run agents, contact prospects, or automatically retry external
+writes. Research can stand alone; founders can self-prepare.
 
 ## Run locally
 
@@ -46,9 +46,8 @@ Core rules:
 
 The ArtiPub publishing workflow is being migrated from its legacy Puppeteer
 and cookie-scraping architecture to deterministic local handoff packages.
-Kirzner does not log in to publishing sites or post automatically. A founder
-reviews and publishes each package manually, then records the live URL against
-the approved Kirzner experiment version.
+A founder reviews and publishes each handoff package manually, then records
+the live URL against the approved Kirzner experiment version.
 
 Import UTF-8 Markdown with frontmatter and local image references, then package
 it for an approved experiment proposal:
@@ -113,9 +112,30 @@ and review the rendered post before publishing. Then record the published URL
 using the package digest and the same experiment version. In the experiment's
 Results view, review the recorded action against the original success criteria
 and add the observed outcome; Kirzner keeps that evidence with the experiment.
-The separate `kirzner campaign` commands manage standalone Markdown campaign
-files (plan, status, approve). They do not post to these platforms or replace
-the SQLite business workspace.
+## Approved campaigns
+
+Campaigns use a standalone Markdown file. Run these commands from its directory.
+
+```sh
+kirzner campaign plan campaign.md
+kirzner campaign approve campaign.md
+kirzner campaign run campaign.md
+kirzner campaign status campaign.md
+```
+
+The runner uses `BLUESKY_HANDLE` and `BLUESKY_APP_PASSWORD` for Bluesky, and
+`GITHUB_TOKEN` for GitHub releases. `HTTPS_PROXY` (or `https_proxy`) applies to
+Bluesky requests and link cards. GitHub requests connect directly. Check the
+Bluesky route with `kirzner campaign check-bluesky-health`.
+
+The runner exits with status 1 if any result is still unresolved or held. For
+an unknown Bluesky write, `kirzner campaign reconcile campaign.md <item> --absent`
+records absence only when the saved PDS returns HTTP 400 `RecordNotFound`.
+A later approved run checks that same record key before writing. If a crashed
+process leaves `.kirzner.lock`, confirm that no campaign command is active
+before removing the empty lock directory and running again.
+
+## Local data
 
 The default database is `data/kirzner.sqlite3`; uploaded files are in
 `data/files`. Migrations run at startup. `KIRZNER_DATA_DIR`, `KIRZNER_PORT`, and
