@@ -363,7 +363,7 @@ async fn execute_bluesky(
     if previously_public {
         return Ok(CampaignResult::new(&action.item, "hold", Some("The campaign already recorded this text as public. Review the public feed before taking further action.".into())));
     }
-    if !BlueskyIntent::valid_tid(&intent.rkey) || intent.rkey.as_bytes()[0] > b'9' {
+    if !BlueskyIntent::valid_tid(&intent.rkey) {
         return Ok(blocked(
             &action.item,
             "The saved Bluesky key is a legacy non-TID key. Review it before publishing.",
@@ -470,6 +470,10 @@ pub async fn run_campaign(
             prior.milestone == Milestone::Public && prior.version.as_ref() == Some(&action.version)
         }) {
             CampaignResult::public(prior)
+        } else if let Some(prior) =
+            prior.filter(|prior| prior.status == Some(RecordStatus::Rejected))
+        {
+            CampaignResult::new(&action.item, "blocked", prior.reason.clone())
         } else if store.paused()? {
             CampaignResult::new(&action.item, "paused", None)
         } else if !approved(store.campaign(), expires.as_deref(), action) {
@@ -511,12 +515,12 @@ pub async fn run_campaign(
                 let absence = prior
                     .and_then(|record| match record.status {
                         Some(RecordStatus::Absent) => Some(record),
-                        Some(
-                            RecordStatus::Rejected | RecordStatus::Paused | RecordStatus::Blocked,
-                        ) => history.iter().rev().find(|entry| {
-                            entry.status == Some(RecordStatus::Absent)
-                                && entry.request_key == record.request_key
-                        }),
+                        Some(RecordStatus::Paused | RecordStatus::Blocked) => {
+                            history.iter().rev().find(|entry| {
+                                entry.status == Some(RecordStatus::Absent)
+                                    && entry.request_key == record.request_key
+                            })
+                        }
                         _ => None,
                     })
                     .cloned();

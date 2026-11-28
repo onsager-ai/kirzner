@@ -622,6 +622,14 @@ async fn bluesky_rejects_definite_errors_and_redacts_ambiguous_ones() {
         assert!(!workspace.text().contains(PASSWORD));
         assert!(!workspace.text().contains(JWT));
         assert_eq!(workspace.records().last().unwrap().status, Some(ledger));
+        if name == "InvalidRequest" {
+            let calls = mock.calls().len();
+            let entries = workspace.records().len();
+            let second = mock.run(&workspace).await;
+            assert_eq!(second[0].status, "blocked");
+            assert_eq!(mock.calls().len(), calls);
+            assert_eq!(workspace.records().len(), entries);
+        }
     }
 }
 
@@ -716,6 +724,29 @@ async fn verified_absence_reuses_the_saved_key_for_adoption_and_create() {
         assert_eq!(workspace.records()[0].status, Some(RecordStatus::Unknown));
         assert_awk_fences(&workspace);
     }
+}
+
+#[tokio::test]
+async fn verified_absence_accepts_saved_tid_starting_with_a() {
+    let workspace = Workspace::approved(&bluesky_plan("example post"));
+    let tid = "a222222222222";
+    workspace.append(unknown(&workspace, tid, "https://saved.test"));
+    let (mock, _) = bsky_mock(Bsky {
+        public: true,
+        ..Bsky::default()
+    })
+    .await;
+    reconcile_absent(&workspace.0, FILE, "d1", &mock.bluesky())
+        .await
+        .unwrap();
+
+    assert_eq!(mock.run(&workspace).await[0].status, "public");
+    let create = mock
+        .calls()
+        .into_iter()
+        .find(|call| call.path.ends_with(".createRecord"))
+        .expect("saved TID should be published");
+    assert_eq!(create.json()["rkey"], tid);
 }
 
 #[tokio::test]
@@ -1204,8 +1235,9 @@ async fn github_explicitly_bypasses_ambient_https_proxy() {
             .unwrap();
         assert!(
             output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stdout)
+            "stdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
         );
         proxy.set_nonblocking(true).unwrap();
         assert_eq!(

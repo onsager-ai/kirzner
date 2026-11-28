@@ -124,10 +124,10 @@ impl GitHubReleases {
             || release.body.as_deref() != Some(intent.body.as_str())
             || release.draft
             || release.prerelease
-            || !release
+            || release
                 .published_at
                 .as_deref()
-                .is_some_and(|stamp| OffsetDateTime::parse(stamp, &Rfc3339).is_ok())
+                .is_none_or(|stamp| OffsetDateTime::parse(stamp, &Rfc3339).is_err())
             || !release.author.login.eq_ignore_ascii_case(&intent.account)
             || url.origin().ascii_serialization() != "https://github.com"
             || !url.username().is_empty()

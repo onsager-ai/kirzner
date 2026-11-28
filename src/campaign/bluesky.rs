@@ -206,8 +206,13 @@ impl Bluesky {
 
     pub fn from_env() -> Result<Self, String> {
         let proxy = std::env::var("HTTPS_PROXY")
-            .or_else(|_| std::env::var("https_proxy"))
-            .ok();
+            .ok()
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                std::env::var("https_proxy")
+                    .ok()
+                    .filter(|value| !value.is_empty())
+            });
         let handle = std::env::var("BLUESKY_HANDLE").ok();
         Self::new(
             Client::builder(),
