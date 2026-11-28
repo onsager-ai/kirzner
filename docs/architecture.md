@@ -74,8 +74,10 @@ manual steps.
 Manual handoff adapters are `generic`, `juejin`, `zhihu`, `csdn`,
 `segmentfault`, `cnblogs`, `v2ex`, `jianshu`, and `oschina`. The founder's
 recorded URL is evidence associated with a package attempt; Kirzner does not
-fetch it or claim that a remote post was verified. This Rust crate does not
-provide automatic posting or Bluesky/GitHub execution.
+fetch it or claim that a remote post was verified. The local campaign CLI can
+publish approved Bluesky posts and GitHub releases. It reserves each write in
+the campaign ledger and verifies public readback before recording success.
+External executors still own scheduling and credentials.
 
 ## Founder workspace and return protocol
 

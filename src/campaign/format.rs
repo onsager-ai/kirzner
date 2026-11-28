@@ -159,7 +159,7 @@ pub struct ExecutionEntry {
     )]
     pub observations: Option<Vec<Mapping>>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Milestone {
     Prepared,
@@ -169,9 +169,11 @@ pub enum Milestone {
     FollowersNotified,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RecordStatus {
+    Absent,
+    Rejected,
     Reserved,
     Unknown,
     Paused,
@@ -182,6 +184,8 @@ pub enum RecordStatus {
     AwaitingAuthor,
     AwaitingUpload,
 }
+
+pub(super) const ABSENCE_SOURCE: &str = "bluesky_pds_get_record";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -307,6 +311,42 @@ pub struct BlueskyIntent {
     pub pds: String,
     pub rkey: String,
     pub text: String,
+    #[serde(
+        default,
+        deserialize_with = "defined",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub collection: Option<String>,
+}
+
+impl BlueskyIntent {
+    pub(super) const COLLECTION: &str = "app.bsky.feed.post";
+
+    pub(super) fn collection(&self) -> &str {
+        self.collection.as_deref().unwrap_or(Self::COLLECTION)
+    }
+
+    pub(super) fn valid_did(did: &str) -> bool {
+        did.strip_prefix("did:plc:").is_some_and(|id| {
+            !id.is_empty()
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
+        }) || did.strip_prefix("did:web:").is_some_and(|id| {
+            !id.is_empty()
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
+        })
+    }
+
+    pub(super) fn valid_tid(key: &str) -> bool {
+        key.len() == 13
+            && key.as_bytes()[0] <= b'j'
+            && key
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -512,30 +552,15 @@ impl Intent {
                         .is_none_or(|commit| valid_hex(commit, 40))
             }
             Self::Bluesky(intent) => {
-                let valid_did = intent.did.strip_prefix("did:plc:").is_some_and(|id| {
-                    !id.is_empty()
-                        && id
-                            .bytes()
-                            .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
-                }) || intent.did.strip_prefix("did:web:").is_some_and(|id| {
-                    !id.is_empty()
-                        && id
-                            .bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
-                });
                 let valid_rkey = intent
                     .rkey
                     .strip_prefix("kirzner-")
                     .is_some_and(|key| valid_hex(key, 64))
-                    || (intent.rkey.len() == 13
-                        && intent.rkey.as_bytes()[0] <= b'j'
-                        && intent
-                            .rkey
-                            .bytes()
-                            .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b)));
+                    || BlueskyIntent::valid_tid(&intent.rkey);
                 bluesky_handle(&intent.account)
-                    && valid_did
+                    && BlueskyIntent::valid_did(&intent.did)
                     && valid_rkey
+                    && intent.collection() == BlueskyIntent::COLLECTION
                     && !intent.text.is_empty()
                     && url::Url::parse(&intent.pds).is_ok_and(|pds| {
                         pds.scheme() == "https" && pds.origin().ascii_serialization() == intent.pds
@@ -591,6 +616,17 @@ fn validate_execution(entry: &ExecutionEntry) -> Result<(), String> {
         }
         for timestamp in record.attempted_at.iter().chain(&record.observed_at) {
             parse_timestamp(timestamp)?;
+        }
+        if record.status == Some(RecordStatus::Absent)
+            && (record.milestone != Milestone::Prepared
+                || record.request_key.is_none()
+                || record.version.is_none()
+                || record.observed_at.is_none()
+                || record.source.as_deref() != Some(ABSENCE_SOURCE)
+                || record.reason.as_ref().is_none_or(String::is_empty)
+                || !matches!(&record.intent, Some(Intent::Bluesky(intent)) if intent.collection.is_some()))
+        {
+            return Err(format!("Invalid Bluesky absence record: {}", record.item));
         }
     }
     if entry

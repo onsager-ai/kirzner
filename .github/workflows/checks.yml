@@ -51,6 +51,19 @@ jobs:
             sleep 0.2
           done
           KIRZNER_TEST_URL=http://127.0.0.1:4317 npm --prefix frontend run test:browser
+      - name: Build release binary
+        id: build-release-binary
+        run: |
+          cargo build --release --locked --bin kirzner
+          cp THIRD_PARTY_NOTICES.md target/release/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kirzner-linux-x86_64
+          path: |
+            target/release/kirzner
+            target/release/THIRD_PARTY_NOTICES.md
+          if-no-files-found: error
+          retention-days: 7
       - name: Collect bounded logs
         if: always()
         run: |

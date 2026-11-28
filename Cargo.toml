@@ -8,6 +8,10 @@ license = "MIT"
 
 [dependencies]
 axum = "=0.8.9"
+percent-encoding = "=2.3.2"
+regex = "=1.12.3"
+reqwest = { version = "=0.12.28", default-features = false, features = ["json", "rustls-tls", "socks"] }
+scraper = { version = "=0.24.0", default-features = false }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 serde_yaml = "=0.9.34"
@@ -16,10 +20,12 @@ unicode-segmentation = "=1.12.0"
 sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "sqlite", "migrate", "macros"] }
 thiserror = "=2.0.21"
 tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "net", "time", "io-util"] }
-time = { version = "=0.3.44", features = ["parsing"] }
+time = { version = "=0.3.44", features = ["formatting", "parsing"] }
 unsafe-libyaml = "=0.2.11"
 url = "=2.5.8"
 
 [dev-dependencies]
 http-body-util = "=0.1.5"
+rcgen = "=0.14.5"
+tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12"] }
 tower = { version = "=0.5.3", features = ["util"] }

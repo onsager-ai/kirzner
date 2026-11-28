@@ -1,9 +1,10 @@
-use kirzner::{AppState, BusinessStore, publish, router};
+use kirzner::{AppState, BusinessStore, campaign, publish, router};
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
     io,
     path::{Path, PathBuf},
+    process::ExitCode,
 };
 
 const USAGE: &str = "Usage:\n  kirzner\n  kirzner article import <markdown-path>\n  \
@@ -11,7 +12,9 @@ const USAGE: &str = "Usage:\n  kirzner\n  kirzner article import <markdown-path>
     --platform <generic|juejin|zhihu|csdn|segmentfault|cnblogs|v2ex|jianshu|oschina> \
     --out <dir>\n  \
     kirzner publish record --experiment <id> --version <n> --package-digest <sha256> \
-    --url <https-url>\n  kirzner campaign <plan|status|approve> <campaign.md>";
+    --url <https-url>\n  kirzner campaign <plan|status|approve|run> <campaign.md>\n  \
+    kirzner campaign reconcile <campaign.md> <item> --absent\n  \
+    kirzner campaign check-bluesky-health [url]";
 
 enum Cli<'a> {
     Import(&'a Path),
@@ -118,8 +121,51 @@ impl Cli<'_> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<ExitCode, Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if let [group, command, rest @ ..] = args.as_slice()
+        && group == "campaign"
+    {
+        match (command.to_str(), rest) {
+            (Some("run"), [file]) => {
+                let results = campaign::run_campaign(
+                    &std::env::current_dir()?,
+                    text(file)?,
+                    &campaign::GitHubReleases::from_env()?,
+                    &campaign::Bluesky::from_env()?,
+                )
+                .await?;
+                println!("{}", serde_json::to_string_pretty(&results)?);
+                return Ok(if results.iter().all(|result| result.status == "public") {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::FAILURE
+                });
+            }
+            (Some("reconcile"), [file, item, option]) if option == "--absent" => {
+                let record = campaign::reconcile_absent(
+                    &std::env::current_dir()?,
+                    text(file)?,
+                    text(item)?,
+                    &campaign::Bluesky::from_env()?,
+                )
+                .await?;
+                println!("{}", serde_json::to_string_pretty(&record)?);
+                return Ok(ExitCode::SUCCESS);
+            }
+            (Some("check-bluesky-health"), [] | [_]) => {
+                let url = rest.first().map(|url| text(url)).transpose()?;
+                let status = campaign::Bluesky::from_env()?.health(url).await?;
+                println!("Kirzner Bluesky health: HTTP {status}");
+                return Ok(if status == 200 {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::FAILURE
+                });
+            }
+            _ => {}
+        }
+    }
     if args.len() == 3 && args[0] == "campaign" {
         let command = args[1].to_str().ok_or_else(usage)?;
         let file = args[2].to_str().ok_or_else(usage)?;
@@ -154,7 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => return Err(usage().into()),
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     let cli = parse_cli(&args)?;
     let data = PathBuf::from(std::env::var("KIRZNER_DATA_DIR").unwrap_or_else(|_| "data".into()));
@@ -163,7 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = BusinessStore::connect(&url).await?;
     if let Some(cli) = cli {
         cli.run(&store, &data).await?;
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     let port = std::env::var("KIRZNER_PORT")
         .unwrap_or_else(|_| "4317".into())
@@ -179,5 +225,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     println!("Kirzner ({}) http://127.0.0.1:{port}", store.backend());
     axum::serve(listener, router(AppState::new(store, data), frontend)).await?;
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }

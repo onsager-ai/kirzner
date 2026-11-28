@@ -1,6 +1,7 @@
 # Third-party notices
 
-Campaign format, hashing, and approval logic includes work ported from ArtiPub.
+The campaign format, approval logic, and Bluesky and GitHub runners include
+work ported from ArtiPub.
 
 BSD 3-Clause License
 
