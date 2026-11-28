@@ -14,7 +14,7 @@ impl PublisherAdapter for Segmentfault {
     }
 
     fn normalize(&self, article: &Article) -> Result<PlatformArticle> {
-        let mut normalized = normalize(article, "SegmentFault", Some(MAX_SEGMENTFAULT_TAGS))?;
+        let mut normalized = normalize(article, "思否", Some(MAX_SEGMENTFAULT_TAGS))?;
         normalized.category = None;
         Ok(normalized)
     }
