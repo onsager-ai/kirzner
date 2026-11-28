@@ -517,10 +517,7 @@ async fn platform_packages_preserve_markdown_and_support_manual_publication() {
         } else if platform == "jianshu" {
             assert_eq!(manifest["tags"], serde_json::json!([]));
             assert!(manifest["category"].is_null());
-        } else if platform == "cnblogs" {
-            assert_eq!(manifest["tags"], tags);
-            assert_eq!(manifest["category"], "Engineering");
-        } else if platform == "juejin" || platform == "csdn" {
+        } else if matches!(platform, "cnblogs" | "juejin" | "csdn") {
             assert_eq!(manifest["tags"], tags);
             assert_eq!(manifest["category"], "Engineering");
         } else {
