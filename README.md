@@ -42,6 +42,40 @@ Core rules:
 - Results use the original criteria. Learning enters future context only after
   explicit adoption.
 
+## Manual publication handoff
+
+The ArtiPub publishing workflow is being migrated from its legacy Puppeteer
+and cookie-scraping architecture to deterministic local handoff packages.
+Kirzner does not log in to publishing sites or post automatically. A founder
+reviews and publishes each package manually, then records the live URL against
+the approved Kirzner experiment version.
+
+Import UTF-8 Markdown with frontmatter and local image references, then package
+it for an approved experiment proposal:
+
+```sh
+cargo run --locked -- article import article.md
+cargo run --locked -- publish package --experiment experiment-1 --version 1 \
+  --article <id-or-path> --platform juejin --out packages
+```
+
+Each package has a deterministic `<article-id>/<platform>/` directory with
+`manifest.json`, `article.md`, `assets/`, and `checklist.md`. The checklist
+guides the manual editor steps and includes a place to record the live URL.
+After publishing, record that founder-confirmed URL using the package digest
+printed by the package command:
+
+```sh
+cargo run --locked -- publish record --experiment experiment-1 --version 1 \
+  --package-digest <sha256> --url https://example.com/published-article
+```
+
+Supported manual handoff platforms are `generic`, `juejin`, `zhihu`, `csdn`,
+`segmentfault` (思否), `cnblogs` (博客园), `v2ex` (V2EX), `jianshu` (简书), and
+`oschina` (开源中国). Recorded live URLs are tied to the Kirzner experiment
+and proposal version; Kirzner records the founder's evidence and does not
+verify remote publication.
+
 The default database is `data/kirzner.sqlite3`; uploaded files are in
 `data/files`. Migrations run at startup. `KIRZNER_DATA_DIR`, `KIRZNER_PORT`, and
 `KIRZNER_FRONTEND_DIR` customize local paths and port. The app binds IPv4

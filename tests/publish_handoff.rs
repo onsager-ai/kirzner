@@ -443,6 +443,11 @@ async fn platform_packages_preserve_markdown_and_support_manual_publication() {
         ("juejin", "https://juejin.cn/editor/drafts/new"),
         ("zhihu", "https://zhuanlan.zhihu.com/write"),
         ("csdn", "https://editor.csdn.net/md/"),
+        ("segmentfault", "https://segmentfault.com/write"),
+        ("cnblogs", "https://i.cnblogs.com/posts/edit"),
+        ("v2ex", "https://www.v2ex.com/write"),
+        ("jianshu", "https://www.jianshu.com/writer"),
+        ("oschina", "https://my.oschina.net/"),
     ] {
         let fixture = Fixture::new().await;
         let markdown = format!(
@@ -495,24 +500,42 @@ async fn platform_packages_preserve_markdown_and_support_manual_publication() {
             serde_json::from_slice(&fs::read(bundle.join("manifest.json")).unwrap()).unwrap();
         assert_eq!(manifest["platform"], platform);
         assert_eq!(manifest["title"], "发布示例");
-        assert_eq!(manifest["summary"], "Synthetic summary");
+        if platform == "v2ex" {
+            assert!(manifest["summary"].is_null());
+        } else {
+            assert_eq!(manifest["summary"], "Synthetic summary");
+        }
         assert_eq!(manifest["cover"], "assets/001-cover.jpg");
         let tags = serde_json::json!(["Rust", "图文"]);
         if platform == "zhihu" {
             assert_eq!(manifest["topic_suggestions"], tags);
             assert_eq!(manifest["tags"], serde_json::json!([]));
             assert!(manifest["category"].is_null());
+        } else if platform == "v2ex" {
+            assert_eq!(manifest["tags"], serde_json::json!([]));
+            assert_eq!(manifest["category"], "Engineering");
+        } else if platform == "jianshu" {
+            assert_eq!(manifest["tags"], serde_json::json!([]));
+            assert!(manifest["category"].is_null());
+        } else if matches!(platform, "cnblogs" | "juejin" | "csdn") {
+            assert_eq!(manifest["tags"], tags);
+            assert_eq!(manifest["category"], "Engineering");
         } else {
             assert!(manifest.get("topic_suggestions").is_none());
             assert_eq!(manifest["tags"], tags);
-            assert_eq!(manifest["category"], "Engineering");
+            assert!(manifest["category"].is_null());
         }
         let checklist = fs::read_to_string(bundle.join("checklist.md")).unwrap();
         assert!(checklist.contains(creator));
         let step = match platform {
             "juejin" => "Select the declared cover",
             "zhihu" => "Choose and attach matching topics manually",
-            _ => "Use the CSDN Markdown editor",
+            "csdn" => "Use the CSDN Markdown editor",
+            "v2ex" => "V2EX allows one node per launch topic",
+            "segmentfault" => "思否",
+            "cnblogs" => "博客园",
+            "jianshu" => "简书",
+            _ => "开源中国",
         };
         assert!(checklist.contains(step));
         assert!(checklist.contains("upload the images in this order"));
@@ -552,6 +575,8 @@ async fn cli_lists_supported_platforms_for_an_unknown_target() {
     assert!(!output.status.success());
     let error = String::from_utf8(output.stderr).unwrap();
     assert!(error.contains("Unknown publication platform"));
-    assert!(error.contains("Supported platforms: generic, juejin, zhihu, csdn"));
+    assert!(error.contains(
+        "Supported platforms: generic, juejin, zhihu, csdn, segmentfault, cnblogs, v2ex, jianshu, oschina"
+    ));
     assert!(!out.exists());
 }

@@ -8,7 +8,8 @@ use std::{
 
 const USAGE: &str = "Usage:\n  kirzner\n  kirzner article import <markdown-path>\n  \
     kirzner publish package --experiment <id> --version <n> --article <id-or-path> \
-    --platform <generic|juejin|zhihu|csdn> --out <dir>\n  \
+    --platform <generic|juejin|zhihu|csdn|segmentfault|cnblogs|v2ex|jianshu|oschina> \
+    --out <dir>\n  \
     kirzner publish record --experiment <id> --version <n> --package-digest <sha256> \
     --url <https-url>";
 

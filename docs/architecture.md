@@ -52,6 +52,31 @@ explicit adoption. Founders record actual execution and observed results;
 Kirzner does not verify remote publication or manufacture outcome metrics.
 Old immutable snapshots are preserved.
 
+## Manual publication packages
+
+The Rust publishing workflow replaces legacy ArtiPub's Puppeteer and
+cookie-scraping design with local deterministic handoff packages. The core
+makes no network calls, uses no publishing credentials, and does not automate
+browsers or remote posting. A founder imports UTF-8 Markdown, packages it for
+an approved experiment proposal, publishes through the platform's own editor,
+and records the founder-confirmed live URL against that experiment version.
+
+The CLI commands are `article import <markdown-path>`, `publish package
+--experiment <id> --version <n> --article <id-or-path> --platform <platform>
+--out <dir>`, and `publish record --experiment <id> --version <n>
+--package-digest <sha256> --url <https-url>`. Packages contain
+`manifest.json`, `article.md`, `assets/`, and `checklist.md` under the article
+ID and platform directories. Their canonical digest uses sorted file paths
+and length-prefixed contents, so identical inputs produce identical package
+digests. The checklist preserves image upload order and platform-specific
+manual steps.
+
+Manual handoff adapters are `generic`, `juejin`, `zhihu`, `csdn`,
+`segmentfault`, `cnblogs`, `v2ex`, `jianshu`, and `oschina`. The founder's
+recorded URL is evidence associated with a package attempt; Kirzner does not
+fetch it or claim that a remote post was verified. This Rust crate does not
+provide automatic posting or Bluesky/GitHub execution.
+
 ## Founder workspace and return protocol
 
 The aggregate and command boundary serve the founder workspace. Product,
