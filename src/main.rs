@@ -11,7 +11,7 @@ const USAGE: &str = "Usage:\n  kirzner\n  kirzner article import <markdown-path>
     --platform <generic|juejin|zhihu|csdn|segmentfault|cnblogs|v2ex|jianshu|oschina> \
     --out <dir>\n  \
     kirzner publish record --experiment <id> --version <n> --package-digest <sha256> \
-    --url <https-url>";
+    --url <https-url>\n  kirzner campaign <plan|status|approve> <campaign.md>";
 
 enum Cli<'a> {
     Import(&'a Path),
@@ -120,6 +120,42 @@ impl Cli<'_> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.len() == 3 && args[0] == "campaign" {
+        let command = args[1].to_str().ok_or_else(usage)?;
+        let file = args[2].to_str().ok_or_else(usage)?;
+        let root = std::env::current_dir()?;
+        let output = match command {
+            "plan" => kirzner::campaign::campaign_plan(&root, file)?,
+            "status" => kirzner::campaign::campaign_status(&root, file)?,
+            "approve" => {
+                if !std::io::IsTerminal::is_terminal(&std::io::stdin())
+                    || !std::io::IsTerminal::is_terminal(&std::io::stdout())
+                {
+                    return Err("Approve from an interactive operator terminal".into());
+                }
+                let reviewed = kirzner::campaign::campaign_plan(&root, file)?;
+                if reviewed["actions"].as_array().is_none_or(Vec::is_empty) {
+                    return Err("No runnable campaign actions to approve".into());
+                }
+                println!("{}", serde_json::to_string_pretty(&reviewed)?);
+                eprint!("Approve this batch? [y/N] ");
+                use std::io::Write;
+                std::io::stderr().flush()?;
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                if !answer.trim().eq_ignore_ascii_case("y") {
+                    return Err("Approval cancelled".into());
+                }
+                let digest = reviewed["digest"]
+                    .as_str()
+                    .ok_or("Missing reviewed digest")?;
+                serde_json::to_value(kirzner::campaign::campaign_approve(&root, file, digest)?)?
+            }
+            _ => return Err(usage().into()),
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
     let cli = parse_cli(&args)?;
     let data = PathBuf::from(std::env::var("KIRZNER_DATA_DIR").unwrap_or_else(|_| "data".into()));
     std::fs::create_dir_all(&data)?;

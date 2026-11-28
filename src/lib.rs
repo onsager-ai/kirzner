@@ -1,3 +1,4 @@
+pub mod campaign;
 pub mod handoffs;
 pub mod http;
 pub mod marketing;
