@@ -132,10 +132,10 @@ impl CampaignStore {
         drop(file);
 
         let directory = fs::File::open(&self.root).map_err(|e| e.to_string())?;
+        file_metadata(&path)?;
         if fs::read(&path).map_err(|e| e.to_string())? != self.campaign.text.as_bytes() {
             return Err("Campaign changed during execution".into());
         }
-        file_metadata(&path)?;
         fs::rename(&temp.0, &path).map_err(|e| e.to_string())?;
         let synced = directory.sync_all().map_err(|e| e.to_string());
         self.campaign = parsed_next;

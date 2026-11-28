@@ -573,7 +573,9 @@ fn campaign_cli_approves_only_runnable_batches_on_a_terminal() {
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
-        child.stdin.take().unwrap().write_all(answer).unwrap();
+        if let Err(error) = child.stdin.take().unwrap().write_all(answer) {
+            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        }
         child.wait_with_output().unwrap()
     };
     let approved = run(b"y\n");

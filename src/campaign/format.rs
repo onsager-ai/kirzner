@@ -5,7 +5,6 @@ use std::{
     mem::MaybeUninit,
 };
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-use unsafe_libyaml as yaml_events;
 
 use super::approval::{bluesky_handle, repo_syntax};
 
@@ -439,17 +438,17 @@ fn validate_plan(plan: &Plan) -> Result<(), String> {
     }
     Ok(())
 }
-struct YamlParser(yaml_events::yaml_parser_t);
+struct YamlParser(unsafe_libyaml::yaml_parser_t);
 
 impl Drop for YamlParser {
     fn drop(&mut self) {
         // The guard is only created after successful initialization.
-        unsafe { yaml_events::yaml_parser_delete(&mut self.0) };
+        unsafe { unsafe_libyaml::yaml_parser_delete(&mut self.0) };
     }
 }
 
 fn reject_yaml_references(input: &str) -> Result<(), String> {
-    use yaml_events::*;
+    use unsafe_libyaml::*;
     let mut parser = MaybeUninit::<yaml_parser_t>::uninit();
     // SAFETY: libyaml initializes the parser before it is wrapped. The input
     // outlives the guard, and the parser stays in place after setting its input.
@@ -460,7 +459,10 @@ fn reject_yaml_references(input: &str) -> Result<(), String> {
         YamlParser(parser.assume_init())
     };
     let parser = &raw mut parser.0;
-    unsafe { yaml_parser_set_input_string(parser, input.as_ptr(), input.len() as u64) };
+    unsafe {
+        yaml_parser_set_encoding(parser, YAML_UTF8_ENCODING);
+        yaml_parser_set_input_string(parser, input.as_ptr(), input.len() as u64);
+    }
     loop {
         let mut event = MaybeUninit::<yaml_event_t>::uninit();
         // SAFETY: successful parsing initializes the event. Its discriminator
@@ -677,7 +679,10 @@ pub fn parse_campaign(text: &str) -> Result<Campaign, String> {
             continue;
         }
         let hashes = t.bytes().take_while(|&byte| byte == b'#').count();
-        if matches!(hashes, 1 | 2) && t[hashes..].starts_with([' ', '\t']) {
+        if matches!(hashes, 1 | 2)
+            && t[hashes..].starts_with([' ', '\t'])
+            && !t[hashes..].trim_matches([' ', '\t']).is_empty()
+        {
             if let Some(s) = section.take()
                 && let Some(r) = sections.get_mut(&s)
             {
