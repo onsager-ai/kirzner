@@ -129,7 +129,7 @@ fn orders_images_and_writes_identical_bundles_in_separate_directories() {
     assert_eq!(manifest["platform"], "generic");
     assert_eq!(manifest["tags"], serde_json::json!(["a", "b"]));
     let checklist = fs::read_to_string(a_out.join("checklist.md")).unwrap();
-    assert!(checklist.contains("- [ ] Paste the live public URL"));
+    assert!(checklist.contains("- [ ] Record the live public URL with `kirzner publish record`."));
     assert!(checklist.contains("- Cover: assets/001-cover.jpg"));
     assert_eq!(manifest["assets"][1]["media_type"], "image/png");
     assert_eq!(manifest["assets"][1]["bytes"], 12);
@@ -517,7 +517,7 @@ async fn platform_packages_preserve_markdown_and_support_manual_publication() {
         } else if platform == "jianshu" {
             assert_eq!(manifest["tags"], serde_json::json!([]));
             assert!(manifest["category"].is_null());
-        } else if matches!(platform, "cnblogs" | "juejin" | "csdn") {
+        } else if matches!(platform, "cnblogs" | "juejin" | "csdn" | "oschina") {
             assert_eq!(manifest["tags"], tags);
             assert_eq!(manifest["category"], "Engineering");
         } else {
@@ -539,6 +539,9 @@ async fn platform_packages_preserve_markdown_and_support_manual_publication() {
         };
         assert!(checklist.contains(step));
         assert!(checklist.contains("upload the images in this order"));
+        assert!(
+            checklist.contains("Replace each relative `assets/...` image link in `article.md`")
+        );
         assert!(checklist.contains("`kirzner publish record`"));
         for (index, path, bytes) in [
             (0, "assets/001-cover.jpg", b"cover"),

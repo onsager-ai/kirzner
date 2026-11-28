@@ -60,21 +60,62 @@ cargo run --locked -- publish package --experiment experiment-1 --version 1 \
 ```
 
 Each package has a deterministic `<article-id>/<platform>/` directory with
-`manifest.json`, `article.md`, `assets/`, and `checklist.md`. The checklist
-guides the manual editor steps and includes a place to record the live URL.
-After publishing, record that founder-confirmed URL using the package digest
-printed by the package command:
+`manifest.json`, `article.md`, `assets/`, and `checklist.md`. For local images,
+the checklist gives their upload order and reminds you to replace each relative
+`assets/...` link in `article.md` with the URL returned by the platform's image
+uploader. After publishing, use the package digest printed by `publish package`
+to record the founder-confirmed URL:
 
 ```sh
 cargo run --locked -- publish record --experiment experiment-1 --version 1 \
   --package-digest <sha256> --url https://example.com/published-article
 ```
 
-Supported manual handoff platforms are `generic`, `juejin`, `zhihu`, `csdn`,
-`segmentfault` (思否), `cnblogs` (博客园), `v2ex` (V2EX), `jianshu` (简书), and
-`oschina` (开源中国). Recorded live URLs are tied to the Kirzner experiment
-and proposal version; Kirzner records the founder's evidence and does not
-verify remote publication.
+Supported manual handoff platforms are `generic`, `juejin` (掘金), `zhihu`
+(知乎), `csdn` (CSDN), `segmentfault` (思否), `cnblogs` (博客园), `v2ex`
+(V2EX), `jianshu` (简书), and `oschina` (开源中国). Recorded live URLs are tied
+to the Kirzner experiment and proposal version; Kirzner records the founder's
+evidence and does not verify remote publication. If you edit an experiment
+proposal after creating a package, approve the new proposal version before
+making a current recording. Otherwise, keep the package's original version
+when recording evidence for a publication already made.
+
+### Copyable article and walkthrough
+
+Save this as `article.md`:
+
+```markdown
+---
+title: A small experiment
+summary: What I tried and what I learned
+tags: [founder-tools, experiment]
+---
+
+## What I tested
+
+I shared a short guide with readers and tracked whether it led to a useful
+conversation. This is a sample article; replace it with your own work.
+```
+
+Import the article, then package it for an experiment whose current proposal
+you have approved. Use that experiment's ID and approved version from its
+Kirzner workspace:
+
+```sh
+cargo run --locked -- article import article.md
+cargo run --locked -- publish package --experiment <experiment-id> \
+  --version <approved-version> --article <id-from-import> \
+  --platform juejin --out packages
+```
+
+Open `packages/<article-id>/juejin/`, follow `checklist.md` in 掘金's editor,
+and review the rendered post before publishing. Then record the published URL
+using the package digest and the same experiment version. In the experiment's
+Results view, review the recorded action against the original success criteria
+and add the observed outcome; Kirzner keeps that evidence with the experiment.
+The separate `kirzner campaign` commands manage standalone Markdown campaign
+files (plan, status, approve). They do not post to these platforms or replace
+the SQLite business workspace.
 
 The default database is `data/kirzner.sqlite3`; uploaded files are in
 `data/files`. Migrations run at startup. `KIRZNER_DATA_DIR`, `KIRZNER_PORT`, and
@@ -92,9 +133,11 @@ python3 scripts/backup.py restore backups/first --data-dir restored-data
 KIRZNER_DATA_DIR=restored-data cargo run --locked
 ```
 
-`--sqlite-db PATH` selects a custom database location. External URLs are
-references and are not copied. See [architecture](docs/architecture.md) for
-storage, return, and compatibility boundaries.
+`KIRZNER_DATA_DIR` selects the data directory; Kirzner stores its database at
+`<data-dir>/kirzner.sqlite3` (default `data/kirzner.sqlite3`) and uploads at
+`<data-dir>/files`. External URLs are references and are not copied. See
+[architecture](docs/architecture.md) for storage, return, and compatibility
+boundaries.
 
 ## Validation
 

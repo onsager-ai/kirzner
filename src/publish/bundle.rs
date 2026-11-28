@@ -226,6 +226,10 @@ fn checklist(manifest: &Manifest<'_>, adapter: &dyn PublisherAdapter) -> String 
     }
     if manifest.assets.is_empty() {
         markdown.push_str("\nNo images to upload.\n");
+    } else {
+        markdown.push_str(
+            "\n- [ ] Replace each relative `assets/...` image link in `article.md` with the URL returned by the platform's image uploader.\n",
+        );
     }
     let steps = adapter.checklist_steps();
     if !steps.is_empty() {
@@ -235,9 +239,7 @@ fn checklist(manifest: &Manifest<'_>, adapter: &dyn PublisherAdapter) -> String 
             markdown.push_str(step);
             markdown.push('\n');
         }
-        markdown.push_str("- [ ] Paste the live public URL into `kirzner publish record`.\n");
-    } else {
-        markdown.push_str("\n- [ ] Paste the live public URL: \n");
     }
+    markdown.push_str("\n- [ ] Record the live public URL with `kirzner publish record`.\n");
     markdown
 }
