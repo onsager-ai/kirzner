@@ -517,7 +517,7 @@ async fn platform_packages_preserve_markdown_and_support_manual_publication() {
         } else if platform == "jianshu" {
             assert_eq!(manifest["tags"], serde_json::json!([]));
             assert!(manifest["category"].is_null());
-        } else if matches!(platform, "cnblogs" | "juejin" | "csdn") {
+        } else if matches!(platform, "cnblogs" | "juejin" | "csdn" | "oschina") {
             assert_eq!(manifest["tags"], tags);
             assert_eq!(manifest["category"], "Engineering");
         } else {
@@ -539,6 +539,9 @@ async fn platform_packages_preserve_markdown_and_support_manual_publication() {
         };
         assert!(checklist.contains(step));
         assert!(checklist.contains("upload the images in this order"));
+        assert!(
+            checklist.contains("Replace each relative `assets/...` image link in `article.md`")
+        );
         assert!(checklist.contains("`kirzner publish record`"));
         for (index, path, bytes) in [
             (0, "assets/001-cover.jpg", b"cover"),

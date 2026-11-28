@@ -14,9 +14,7 @@ impl PublisherAdapter for Oschina {
     }
 
     fn normalize(&self, article: &Article) -> Result<PlatformArticle> {
-        let mut normalized = normalize(article, "开源中国", Some(MAX_OSCHINA_TAGS))?;
-        normalized.category = None;
-        Ok(normalized)
+        normalize(article, "开源中国", Some(MAX_OSCHINA_TAGS))
     }
 
     fn checklist_steps(&self) -> &[&str] {

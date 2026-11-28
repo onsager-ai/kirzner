@@ -162,5 +162,8 @@ mod tests {
                 .iter()
                 .any(|step| step.contains("one node"))
         );
+        let oschina = lookup("oschina").unwrap();
+        let normalized = oschina.normalize(&article).unwrap();
+        assert_eq!(normalized.category.as_deref(), Some("分享创造"));
     }
 }
