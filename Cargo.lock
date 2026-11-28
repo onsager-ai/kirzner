@@ -733,6 +733,8 @@ dependencies = [
  "tokio",
  "tower",
  "unicode-segmentation",
+ "unsafe-libyaml",
+ "url",
 ]
 
 [[package]]

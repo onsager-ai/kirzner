@@ -11,7 +11,7 @@ const USAGE: &str = "Usage:\n  kirzner\n  kirzner article import <markdown-path>
     --platform <generic|juejin|zhihu|csdn|segmentfault|cnblogs|v2ex|jianshu|oschina> \
     --out <dir>\n  \
     kirzner publish record --experiment <id> --version <n> --package-digest <sha256> \
-    --url <https-url>";
+    --url <https-url>\n  kirzner campaign <plan|status|approve> <campaign.md>";
 
 enum Cli<'a> {
     Import(&'a Path),
@@ -134,13 +134,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return Err("Approve from an interactive operator terminal".into());
                 }
                 let reviewed = kirzner::campaign::campaign_plan(&root, file)?;
+                if reviewed["actions"].as_array().is_none_or(Vec::is_empty) {
+                    return Err("No runnable campaign actions to approve".into());
+                }
                 println!("{}", serde_json::to_string_pretty(&reviewed)?);
                 eprint!("Approve this batch? [y/N] ");
                 use std::io::Write;
                 std::io::stderr().flush()?;
                 let mut answer = String::new();
                 std::io::stdin().read_line(&mut answer)?;
-                if answer.trim().to_lowercase() != "y" {
+                if !answer.trim().eq_ignore_ascii_case("y") {
                     return Err("Approval cancelled".into());
                 }
                 let digest = reviewed["digest"]

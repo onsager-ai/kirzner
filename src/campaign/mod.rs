@@ -4,8 +4,12 @@ mod approval;
 mod format;
 mod workspace;
 
-pub use approval::{CampaignAction, approval_batch, approve_campaign};
+pub use approval::{CampaignAction, approval_batch, approve_campaign, approved, in_window};
 pub use format::{
-    Approval, Campaign, ExecutionEntry, Plan, PlanItem, append_execution, parse_campaign,
+    ActionRecord, Approval, Asset, BlueskyIntent, Campaign, ExecutionEntry, Intent, Milestone,
+    Plan, PlanItem, RecordStatus, ReleaseIntent, RetiredIntent, Step, append_execution,
+    parse_campaign,
 };
-pub use workspace::{campaign_approve, campaign_plan, campaign_status, with_campaign};
+pub use workspace::{
+    CampaignStore, campaign_approve, campaign_plan, campaign_status, read_campaign, with_campaign,
+};

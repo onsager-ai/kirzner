@@ -1,7 +1,7 @@
-use super::format::{Approval, Campaign, PlanItem};
+use super::format::{Approval, Campaign, PlanItem, parse_timestamp, valid_hex};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use time::OffsetDateTime;
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -43,7 +43,7 @@ fn sha(value: &Value) -> Result<String, String> {
 fn jopt(v: &Option<String>) -> Value {
     v.as_ref().map_or(Value::Null, |s| json!(s))
 }
-fn bluesky_handle(value: &str) -> bool {
+pub(super) fn bluesky_handle(value: &str) -> bool {
     value.len() <= 253
         && value.split('.').count() >= 2
         && value.split('.').all(|part| {
@@ -55,12 +55,22 @@ fn bluesky_handle(value: &str) -> bool {
                     .bytes()
                     .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         })
-        && value.rsplit('.').next().is_some_and(|part| {
-            part.as_bytes()[0].is_ascii_lowercase()
-                && part
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        })
+        && value
+            .rsplit('.')
+            .next()
+            .is_some_and(|part| part.starts_with(|c: char| c.is_ascii_lowercase()))
+}
+pub(super) fn repo_syntax(path: &str) -> bool {
+    path.split_once('/').is_some_and(|(owner, repo)| {
+        !owner.is_empty()
+            && owner
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+            && !repo.is_empty()
+            && repo
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+    })
 }
 fn valid_release_tag(tag: &str) -> bool {
     !tag.chars().any(|c| {
@@ -82,11 +92,7 @@ fn action(item: &PlanItem, c: &Campaign) -> Result<Option<CampaignAction>, Strin
     let Some(steps) = item.steps.as_ref() else {
         return Ok(None);
     };
-    if steps.as_slice() != ["publish"] {
-        return Err(format!("Invalid executable plan for {}", item.id));
-    }
-    if item.target.starts_with("bluesky/") {
-        let raw_account = &item.target[8..];
+    if let Some(raw_account) = item.target.strip_prefix("bluesky/") {
         let a = raw_account
             .strip_prefix('@')
             .unwrap_or(raw_account)
@@ -96,7 +102,8 @@ fn action(item: &PlanItem, c: &Campaign) -> Result<Option<CampaignAction>, Strin
             .get(item.content.as_deref().unwrap_or(""))
             .ok_or("Missing Bluesky payload")?
             .clone();
-        if !bluesky_handle(&a)
+        if steps.as_slice() != ["publish"]
+            || !bluesky_handle(&a)
             || item
                 .account
                 .as_ref()
@@ -133,31 +140,20 @@ fn action(item: &PlanItem, c: &Campaign) -> Result<Option<CampaignAction>, Strin
             remote_key: remote,
         }));
     }
-    if item.target.starts_with("github/") {
-        let path = &item.target[7..];
-        let (owner, repo) = path
-            .split_once('/')
-            .ok_or("Invalid GitHub Release target")?;
-        if owner.is_empty()
-            || repo.is_empty()
-            || !owner
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-            || !repo
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
-            || repo == "."
-            || repo == ".."
+    if let Some(path) = item.target.strip_prefix("github/") {
+        if steps.as_slice() != ["publish"]
+            || !repo_syntax(path)
+            || path.ends_with("/.")
+            || path.ends_with("/..")
         {
             return Err(format!("Invalid GitHub Release action: {}", item.id));
         }
-        let repo = format!("{}/{}", owner, repo);
-        let repo = repo.to_lowercase();
+        let repo = path.to_ascii_lowercase();
         let account = item
             .account
             .as_deref()
             .ok_or("Missing GitHub account")?
-            .to_lowercase();
+            .to_ascii_lowercase();
         let base_account = account.strip_suffix("[bot]").unwrap_or(&account);
         if base_account.is_empty()
             || !base_account.as_bytes()[0].is_ascii_alphanumeric()
@@ -170,12 +166,10 @@ fn action(item: &PlanItem, c: &Campaign) -> Result<Option<CampaignAction>, Strin
         }
         let tag = item.tag.as_deref().ok_or("Missing GitHub tag")?;
         if !valid_release_tag(tag)
-            || item.commit.as_ref().is_some_and(|commit| {
-                commit.len() != 40
-                    || !commit
-                        .bytes()
-                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-            })
+            || item
+                .commit
+                .as_deref()
+                .is_some_and(|commit| !valid_hex(commit, 40))
             || item
                 .assets
                 .as_ref()
@@ -187,8 +181,7 @@ fn action(item: &PlanItem, c: &Campaign) -> Result<Option<CampaignAction>, Strin
             .payloads
             .get(item.content.as_deref().unwrap_or(""))
             .ok_or("Missing release payload")?;
-        let mut lines = p.splitn(2, '\n');
-        let titleline = lines.next().unwrap_or("");
+        let (titleline, mut body) = p.split_once('\n').ok_or("Set a Title and Markdown body")?;
         let title = titleline
             .strip_prefix("Title:")
             .filter(|v| v.starts_with(' ') || v.starts_with('\t'))
@@ -196,12 +189,11 @@ fn action(item: &PlanItem, c: &Campaign) -> Result<Option<CampaignAction>, Strin
             .filter(|s| !s.is_empty())
             .ok_or("Set a Title and Markdown body")?
             .to_string();
-        let body_lines = lines.next().unwrap_or("").split('\n').collect::<Vec<_>>();
-        let first_body_line = body_lines
-            .iter()
-            .position(|line| !line.trim().is_empty())
-            .unwrap_or(body_lines.len());
-        let body = body_lines[first_body_line..].join("\n");
+        while let Some((line, rest)) = body.split_once('\n')
+            && line.trim_matches([' ', '\t']).is_empty()
+        {
+            body = rest;
+        }
         if body.trim().is_empty() {
             return Err("Set a Title and Markdown body".into());
         }
@@ -231,7 +223,7 @@ fn action(item: &PlanItem, c: &Campaign) -> Result<Option<CampaignAction>, Strin
             tag: Some(tag.into()),
             commit: item.commit.clone(),
             title: Some(title),
-            body: Some(body),
+            body: Some(body.into()),
             version,
             request_key: request,
             remote_key: remote,
@@ -281,11 +273,10 @@ pub fn approve_campaign(c: &Campaign, reviewed: &str) -> Result<Approval, String
     if d != reviewed {
         return Err("Campaign changed during review. Review it again.".into());
     }
-    if let Some(expires) = &e {
-        let expires = OffsetDateTime::parse(expires, &Rfc3339).map_err(|e| e.to_string())?;
-        if OffsetDateTime::now_utc() >= expires {
-            return Err("Campaign window has expired".into());
-        }
+    if let Some(expires) = &e
+        && OffsetDateTime::now_utc() >= parse_timestamp(expires)?
+    {
+        return Err("Campaign window has expired".into());
     }
     Ok(Approval {
         items: a.iter().map(|x| x.item.clone()).collect(),
@@ -293,4 +284,26 @@ pub fn approve_campaign(c: &Campaign, reviewed: &str) -> Result<Approval, String
         digest: d,
         expires_at: e,
     })
+}
+
+pub fn approved(
+    campaign: &Campaign,
+    batch_expires_at: Option<&str>,
+    action: &CampaignAction,
+) -> bool {
+    campaign.approval.as_ref().is_some_and(|approval| {
+        approval.expires_at.as_deref() == batch_expires_at
+            && approval.hashes.contains(&action.version)
+    })
+}
+
+pub fn in_window(campaign: &Campaign, now: OffsetDateTime) -> bool {
+    campaign
+        .plan
+        .window_utc
+        .as_ref()
+        .is_none_or(|[start, end]| {
+            parse_timestamp(start).is_ok_and(|start| now >= start)
+                && parse_timestamp(end).is_ok_and(|end| now < end)
+        })
 }
